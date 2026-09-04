@@ -211,6 +211,18 @@ table.roster td{ padding:8px 8px; border-bottom:1px solid var(--line); vertical-
 .elig-chip.subj-psychology{ border-left-color:var(--psych); }
 .elig-chip-levels{ font-weight:400; font-size:11px; color:var(--ink-faint); }
 
+/* Scrollable tick-list — used to pick which tutors a PDF goes to */
+.check-list{
+  border:1px solid var(--line-strong); border-radius:var(--radius-s);
+  background:var(--card); padding:8px 10px; max-height:220px; overflow-y:auto;
+}
+.check-row{
+  display:flex; align-items:center; gap:8px; margin:0;
+  font-size:13.5px; font-weight:400; color:var(--ink); cursor:pointer;
+}
+.check-row + .check-row{ margin-top:6px; }
+.check-row input[type=checkbox]{ width:auto; margin:0; flex-shrink:0; }
+
 /* Subject/level picker inside the approve + edit modal */
 .elig-picker{ display:flex; flex-direction:column; gap:10px; }
 .elig-subject{ border:1px solid var(--line); border-radius:6px; padding:9px 11px; background:var(--paper-alt); }

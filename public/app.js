@@ -45,14 +45,13 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 
 /* ---------------------------- STATE ------------------------------------ */
 let session = { tutor: null, admin: null };
-let cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocsForTutor: [] };
+let cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocs: [] };
 let state = {
   view: 'tutee',
   adminSubtab: 'overview',
   tutorAuthMode: 'login',
   tuteeLookupEmail: null,
-  lastSubmittedEmail: '',
-  volHoursSelectedTutor: null
+  lastSubmittedEmail: ''
 };
 let toasts = [];
 let toastCounter = 0;
@@ -729,21 +728,39 @@ function renderAdminDashboard(admin){
   `;
 }
 function renderAdminVolunteerHours(){
-  const tutors = cache.tutors || [];
-  const approved = tutors.filter(t=>t.verificationStatus==='approved');
-  if (!state.volHoursSelectedTutor && approved[0]) state.volHoursSelectedTutor = approved[0].id;
-  const selected = state.volHoursSelectedTutor || '';
-  const docs = cache.volDocsForTutor || [];
+  const approved = (cache.tutors || []).filter(t=>t.verificationStatus==='approved');
+  const docs = cache.volDocs || [];
+
+  // Group the history by tutor so a PDF sent to eight people reads as eight
+  // rows under their own names rather than eight identical lines in a pile.
+  const byTutor = new Map();
+  docs.forEach(d => {
+    const who = d.tutorEmail || 'Deleted tutor';
+    if (!byTutor.has(who)) byTutor.set(who, []);
+    byTutor.get(who).push(d);
+  });
+
   return `
     <h2 class="section-title">Send volunteer hours</h2>
-    <p class="section-sub">Send a tutor a PDF confirming their completed volunteer hours.</p>
-    <div class="field" style="max-width:420px;">
-      <label class="req">Tutor</label>
-      <select id="volhours-tutor-select">
-        ${approved.length ? approved.map(t=>`<option value="${t.id}" ${t.id===selected?'selected':''}>${escapeHtml(t.email)}</option>`).join('') : '<option value="">No approved tutors yet</option>'}
-      </select>
-    </div>
-    <form data-form="admin-send-volhours" style="max-width:420px;">
+    <p class="section-sub">Send one PDF confirming completed volunteer hours to as many tutors as you like — tick everyone it applies to and they each get their own copy.</p>
+
+    <form data-form="admin-send-volhours" style="max-width:460px;">
+      <div class="field">
+        <label class="req">Tutors</label>
+        ${approved.length ? `
+          <div class="check-list" id="volhours-tutor-list">
+            ${approved.map(t=>`
+              <label class="check-row">
+                <input type="checkbox" name="tutorIds" value="${t.id}" />
+                <span>${escapeHtml(t.email)}</span>
+              </label>`).join('')}
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button type="button" class="btn btn-ghost btn-small" data-action="volhours-select-all">Select all</button>
+            <button type="button" class="btn btn-ghost btn-small" data-action="volhours-clear">Clear</button>
+          </div>
+        ` : `<div class="empty-state">No approved tutors yet.</div>`}
+      </div>
       <div class="field">
         <label>Title / note <span class="fine">(optional)</span></label>
         <input name="title" maxlength="140" placeholder="e.g. Fall 2026 — 12 hours" />
@@ -754,14 +771,20 @@ function renderAdminVolunteerHours(){
       </div>
       <button type="submit" class="btn btn-primary" ${approved.length?'':'disabled'}>Send PDF</button>
     </form>
+
     <hr class="divider" />
-    <h3 style="font-size:16px;">Previously sent to this tutor</h3>
-    ${docs.length ? `<div class="doc-list">${docs.map(d=>`
-      <div class="doc-item">
-        <span>${escapeHtml(d.title)} <span class="fine">— ${new Date(d.createdAt).toLocaleDateString()}</span></span>
-        <a class="btn btn-ghost btn-small" href="/api/volunteer-hours/${d.id}/file" target="_blank" rel="noopener">Download</a>
+    <h3 style="font-size:16px;">Everything sent so far</h3>
+    ${byTutor.size ? [...byTutor.entries()].map(([who, list])=>`
+      <div style="margin-bottom:16px;">
+        <div class="fine" style="margin-bottom:6px;"><strong>${escapeHtml(who)}</strong></div>
+        <div class="doc-list">${list.map(d=>`
+          <div class="doc-item">
+            <span>${escapeHtml(d.title)} <span class="fine">— ${new Date(d.createdAt).toLocaleDateString()}</span></span>
+            <a class="btn btn-ghost btn-small" href="/api/volunteer-hours/${d.id}/file" target="_blank" rel="noopener">Download</a>
+          </div>
+        `).join('')}</div>
       </div>
-    `).join('')}</div>` : `<div class="empty-state">No documents sent to this tutor yet.</div>`}
+    `).join('') : `<div class="empty-state">No documents have been sent yet.</div>`}
   `;
 }
 function renderAdminAccounts(admin){
@@ -834,11 +857,6 @@ function renderAdminTutorBoard(){
 }
 
 /* ---------------------------- DATA LOADING -------------------------------- */
-async function loadVolHoursForSelectedTutor(){
-  if (!state.volHoursSelectedTutor){ cache.volDocsForTutor = []; return; }
-  try{ cache.volDocsForTutor = await api('GET', `/api/volunteer-hours/for-tutor/${state.volHoursSelectedTutor}`); }
-  catch(err){ cache.volDocsForTutor = []; }
-}
 async function loadAndRender(){
   try{
     if (state.view === 'tutor' && session.tutor && session.tutor.verificationStatus === 'approved'){
@@ -857,9 +875,7 @@ async function loadAndRender(){
         cache.allTickets = await api('GET','/api/tickets/all');
       }
       if (state.adminSubtab === 'volhours'){
-        const approved = (cache.tutors||[]).filter(t=>t.verificationStatus==='approved');
-        if (!state.volHoursSelectedTutor && approved[0]) state.volHoursSelectedTutor = approved[0].id;
-        await loadVolHoursForSelectedTutor();
+        cache.volDocs = await api('GET','/api/volunteer-hours/all');
       }
       if (state.adminSubtab === 'tutorboard'){
         const [open, mine] = await Promise.all([api('GET','/api/tickets/open'), api('GET','/api/tickets/mine')]);
@@ -1078,21 +1094,20 @@ async function handleAdminChangePassword(form){
   }catch(err){ pushToast(err.message,'error'); }
 }
 async function handleAdminSendVolHours(form){
-  const select = document.getElementById('volhours-tutor-select');
-  const tutorId = select ? select.value : '';
-  if (!tutorId){ pushToast('Choose a tutor first.','error'); return; }
+  // The tutor checkboxes are named tutorIds, so the form itself already
+  // carries one entry per ticked tutor alongside the file and title.
+  const fd = new FormData(form);
+  const chosen = fd.getAll('tutorIds');
+  if (!chosen.length){ pushToast('Tick at least one tutor to send this to.','error'); return; }
   const fileInput = form.querySelector('input[type=file]');
   if (!fileInput || !fileInput.files[0]){ pushToast('Choose a PDF file.','error'); return; }
-  const fd = new FormData(form);
-  const payload = new FormData();
-  payload.append('pdf', fileInput.files[0]);
-  payload.append('title', fd.get('title') || '');
   try{
-    await api('POST', `/api/volunteer-hours/${tutorId}`, payload, true);
-    pushToast('PDF sent to the tutor.','success');
-    state.volHoursSelectedTutor = tutorId;
-    await loadVolHoursForSelectedTutor();
-    render();
+    const res = await api('POST', '/api/volunteer-hours', fd, true);
+    pushToast(
+      res.sent === 1 ? `PDF sent to ${res.tutors[0]}.` : `PDF sent to ${res.sent} tutors.`,
+      'success'
+    );
+    await loadAndRender();
   }catch(err){ pushToast(err.message,'error'); }
 }
 async function handleResetAllData(){
@@ -1100,8 +1115,7 @@ async function handleResetAllData(){
   try{
     await api('POST','/api/admin/reset');
     pushToast('All data cleared.','info');
-    cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocsForTutor: [] };
-    state.volHoursSelectedTutor = null;
+    cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocs: [] };
     await loadAndRender();
   }catch(err){ pushToast(err.message,'error'); }
 }
@@ -1182,12 +1196,6 @@ document.addEventListener('change', async (e)=>{
     if (subjectBox) subjectBox.checked = anyOn;
     return;
   }
-  if (e.target.id === 'volhours-tutor-select'){
-    state.volHoursSelectedTutor = e.target.value;
-    await loadVolHoursForSelectedTutor();
-    render();
-    return;
-  }
   if (e.target.matches('[data-file="verification-form"]')){ await handleTutorVerifyFile(e.target); return; }
   if (e.target.matches('[data-file="proof"]')){ await handleProofFile(e.target); return; }
 });
@@ -1215,6 +1223,10 @@ document.addEventListener('click', async (e)=>{
     else if (action === 'reject-tutor') await handleRejectTutor(id);
     else if (action === 'view-tutor-form') handleViewTutorForm(id);
     else if (action === 'view-proof-photo') handleViewProofPhoto(id);
+    else if (action === 'volhours-select-all' || action === 'volhours-clear'){
+      const on = action === 'volhours-select-all';
+      document.querySelectorAll('#volhours-tutor-list input[type=checkbox]').forEach(cb => { cb.checked = on; });
+    }
     else if (action === 'close-modal') closeModal();
     else if (action === 'reset-all-data') await handleResetAllData();
   }catch(err){ console.error(err); pushToast('Something went wrong: ' + err.message, 'error'); }

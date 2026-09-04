@@ -137,6 +137,18 @@ If two subjects ever move into the same teacher's room, give them the same
 `room` value in both `src/eligibility.js` and `public/app.js` and the rule
 follows automatically.
 
+### Sending volunteer hours
+
+**Admin → Volunteer Hours** sends one PDF to as many tutors as you tick, in a
+single upload. Each recipient gets their own row in the database, so they can
+download their own copy and deleting one tutor never removes another's
+document. **Select all** / **Clear** are there for the common "everyone who
+tutored this term" case, and ticking the same person twice still sends one
+copy.
+
+Below the form, **Everything sent so far** lists every document grouped by
+the tutor it went to.
+
 ### Deleting tutors
 
 **Admin → Tutor Roster → Delete** removes a tutor account after a
@@ -231,11 +243,13 @@ backed by a local SQLite file (`TURSO_DATABASE_URL=file:test-local.db`),
 covering both the API and the browser UI. `npm run test:dates` re-runs the
 calendar half of that any time, with no server or database needed.
 
-Some older flows predate that and were only syntax-checked and reasoned
-through — in particular sending and downloading volunteer-hours PDFs, and
-the verification-form / proof-of-tutoring photo uploads against a real Turso
-database rather than a local file. Walk through those yourself on your
-deployed copy before trusting this with real students.
+Sending volunteer-hours PDFs to several tutors at once was covered the same
+way (25 checks over the API plus a run through the real form in a browser).
+
+What's still only been exercised against a local SQLite file rather than a
+real Turso database: the photo uploads (verification forms and
+proof-of-tutoring). Walk through those yourself on your deployed copy before
+trusting this with real students.
 
 ## Project layout
 
@@ -251,7 +265,7 @@ src/bootstrap.js              — creates the first admin (the owner admin) on f
 src/routes/tickets.js         — tutee requests, claiming, cancelling, proof uploads
 src/routes/tutors.js          — tutor signup/login, verification form upload
 src/routes/admin.js           — admin login, tutor roster/approval/deletion, admin accounts, reset
-src/routes/volunteerHours.js  — admin sends PDFs, tutor/admin downloads them
+src/routes/volunteerHours.js  — admin sends one PDF to one or more tutors, tutor/admin downloads them
 src/routes/dateTester.js      — TEMPORARY read-only calendar preview API (see "Removing the date tester")
 tools/verify-blackout-dates.js— `npm run test:dates` — checks the no-tutoring calendar with no server needed
 public/index.html, app.js, styles.css  — the frontend; talks to the API only
