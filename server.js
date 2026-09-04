@@ -11,6 +11,7 @@ const ticketRoutes = require('./src/routes/tickets');
 const tutorRoutes = require('./src/routes/tutors');
 const adminRoutes = require('./src/routes/admin');
 const volunteerHoursRoutes = require('./src/routes/volunteerHours');
+const dateTesterRoutes = require('./src/routes/dateTester'); // TEMPORARY — see src/routes/dateTester.js
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/tutor', tutorRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/volunteer-hours', volunteerHoursRoutes);
+app.use('/api/date-tester', dateTesterRoutes); // TEMPORARY — remove with public/date-tester.*
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

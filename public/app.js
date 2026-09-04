@@ -12,23 +12,40 @@
    what's actually allowed. */
 const CONFIG = {
   SUBJECTS: {
-    biology: { label: "Biology", teacher: "Mr. Hauser", days: [1,3], subOptions: ["Biology / Biology Adv", "AP Biology"] },
-    chemistry: { label: "Chemistry", teacher: "Mrs. Montgomery", days: [1,3,4], subOptions: ["Chemistry / Chemistry Adv", "AP Chemistry"] },
-    physics: { label: "Physics", teacher: "Ms. Rittenhouse", days: [2,3,4], subOptions: ["Physics 1", "AP Physics 1", "AP Physics 2", "AP Physics C"] },
-    envsci: { label: "AP Environmental Science", teacher: "Ms. Alejo", days: [1,2,4], subOptions: null },
-    psychology: { label: "AP Psychology", teacher: "Mr. J", days: [1,2,3], subOptions: null }
+    biology: { label: "Biology", teacher: "Mr. Hauser", room: "hauser", days: [1,3], subOptions: ["Biology / Biology Adv", "AP Biology"] },
+    chemistry: { label: "Chemistry", teacher: "Mrs. Montgomery", room: "montgomery", days: [1,3,4], subOptions: ["Chemistry / Chemistry Adv", "AP Chemistry"] },
+    physics: { label: "Physics", teacher: "Ms. Rittenhouse", room: "rittenhouse", days: [2,3,4], subOptions: ["Physics 1", "AP Physics 1", "AP Physics 2", "AP Physics C"] },
+    envsci: { label: "AP Environmental Science", teacher: "Ms. Alejo", room: "alejo", days: [1,2,4], subOptions: null },
+    psychology: { label: "AP Psychology", teacher: "Mr. J", room: "mr-j", days: [1,2,3], subOptions: null }
   },
   TUTEE_CUTOFF: { h: 12, m: 0 },
   TUTOR_CUTOFF: { h: 12, m: 15 },
-  MAX_PER_SUBJECT_PER_DAY: 3
+  MAX_PER_ROOM_PER_DAY: 3,
+  /* Days with no tutoring at all (2026-27 school year) — holidays, breaks,
+     and staff days. Mirror of NO_TUTORING_DATES in src/eligibility.js; the
+     server rejects these regardless of what this copy says. */
+  NO_TUTORING_DATES: [
+    '2026-09-07','2026-09-08',
+    '2026-10-09','2026-10-12','2026-10-13',
+    '2026-11-23','2026-11-24','2026-11-25','2026-11-26','2026-11-27',
+    '2026-12-21','2026-12-22','2026-12-23','2026-12-24','2026-12-25',
+    '2026-12-28','2026-12-29','2026-12-30','2026-12-31',
+    '2027-01-01','2027-01-04','2027-01-18',
+    '2027-02-12','2027-02-15',
+    '2027-03-15','2027-03-16','2027-03-17','2027-03-18','2027-03-19','2027-03-26',
+    '2027-04-16','2027-04-30'
+  ]
 };
+const NO_TUTORING_SET = new Set(CONFIG.NO_TUTORING_DATES);
+const CONTACT_EMAIL = 'yodha.yarmaneni.215@k12.friscoisd.org';
+const EXAMPLE_EMAIL = 'yourname@k12.friscoisd.org';
 const SUBJ_CLASS = { biology:'subj-biology', chemistry:'subj-chemistry', physics:'subj-physics', envsci:'subj-envsci', psychology:'subj-psychology' };
 const WEEKDAY_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 /* ---------------------------- STATE ------------------------------------ */
 let session = { tutor: null, admin: null };
-let cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], volDocsForTutor: [] };
+let cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocsForTutor: [] };
 let state = {
   view: 'tutee',
   adminSubtab: 'overview',
@@ -53,7 +70,11 @@ function fmtLong(d){ return `${WEEKDAY_LONG[d.getDay()]}, ${MONTHS[d.getMonth()]
 function fmtShort(d){ return `${WEEKDAY_LONG[d.getDay()].slice(0,3)} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}`; }
 function fmtHour({h,m}){ const hr12 = ((h % 12) === 0) ? 12 : (h % 12); const ampm = h < 12 ? 'AM' : 'PM'; return `${hr12}:${pad2(m)} ${ampm}`; }
 
-function getEligibleDates(now, cutoffH, cutoffM){
+function isNoTutoringDate(dateStr){ return NO_TUTORING_SET.has(dateStr); }
+
+// Every Mon-Thu in the two-week window, before the no-tutoring calendar is
+// applied. Shared by the two functions below.
+function windowWeekdays(now){
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dow = today.getDay();
   const diffToMonday = dow === 0 ? -6 : 1 - dow;
@@ -63,19 +84,118 @@ function getEligibleDates(now, cutoffH, cutoffM){
     for (let d=0; d<4; d++){
       const date = new Date(monday); date.setDate(monday.getDate() + w*7 + d);
       if (date.getTime() < today.getTime()) continue;
-      if (date.getTime() === today.getTime()){
-        const cutoff = new Date(today); cutoff.setHours(cutoffH, cutoffM, 0, 0);
-        if (now.getTime() >= cutoff.getTime()) continue;
-      }
       out.push(date);
     }
   }
   return out;
 }
+function getEligibleDates(now, cutoffH, cutoffM){
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return windowWeekdays(now).filter(date => {
+    if (date.getTime() === today.getTime()){
+      const cutoff = new Date(today); cutoff.setHours(cutoffH, cutoffM, 0, 0);
+      if (now.getTime() >= cutoff.getTime()) return false;
+    }
+    return !isNoTutoringDate(fmtISO(date));
+  });
+}
+// Days inside the window that are closed by the school calendar — the ones
+// worth telling people about instead of silently hiding.
+function upcomingNoTutoringDates(now){
+  return windowWeekdays(now).filter(d => isNoTutoringDate(fmtISO(d)));
+}
+function closedDaysNote(now){
+  const closed = upcomingNoTutoringDates(now);
+  if (!closed.length) return '';
+  return `<div class="closed-note"><strong>No tutoring on:</strong> ${closed.map(fmtShort).join(' · ')}</div>`;
+}
 function eligibleForSubject(subjectKey, now, cutoffH, cutoffM){
   const subj = CONFIG.SUBJECTS[subjectKey];
   if (!subj) return [];
   return getEligibleDates(now, cutoffH, cutoffM).filter(d => subj.days.includes(d.getDay()));
+}
+
+/* ------------------- TUTOR SUBJECT ELIGIBILITY (display) -------------------
+   `eligibility` is an object like { biology: ["AP Biology"], envsci: [] } —
+   a subject the tutor may teach appears as a key, and for subjects that have
+   course levels the array lists the exact levels. `null` means the account
+   was approved before this feature existed, so it can currently tutor
+   everything until an admin sets a real list. */
+function eligibilityEntries(elig){
+  if (!elig) return [];
+  return Object.entries(CONFIG.SUBJECTS)
+    .filter(([key]) => Object.prototype.hasOwnProperty.call(elig, key))
+    .map(([key, subj]) => ({
+      key,
+      label: subj.label,
+      levels: subj.subOptions ? (elig[key] || []) : null
+    }));
+}
+function eligibilitySummary(elig){
+  if (!elig) return 'All subjects (not set yet)';
+  const entries = eligibilityEntries(elig);
+  if (!entries.length) return 'Nothing assigned';
+  return entries.map(e => e.levels && e.levels.length < (CONFIG.SUBJECTS[e.key].subOptions || []).length
+    ? `${e.label} (${e.levels.join(', ')})`
+    : e.label
+  ).join('; ');
+}
+function eligibilityChips(elig){
+  if (!elig) return `<span class="chip chip-unsubmitted">All subjects — not set yet</span>`;
+  const entries = eligibilityEntries(elig);
+  if (!entries.length) return `<span class="chip chip-rejected">Nothing assigned</span>`;
+  return entries.map(e => `
+    <span class="elig-chip ${SUBJ_CLASS[e.key]}">
+      ${escapeHtml(e.label)}${e.levels && e.levels.length ? `<span class="elig-chip-levels">${e.levels.map(escapeHtml).join(' · ')}</span>` : ''}
+    </span>`).join('');
+}
+function eligibilityPicker(current){
+  return `<div class="elig-picker" id="elig-picker">
+    ${Object.entries(CONFIG.SUBJECTS).map(([key, s]) => {
+      const on = !!(current && Object.prototype.hasOwnProperty.call(current, key));
+      const chosen = on ? (current[key] || []) : [];
+      return `
+      <div class="elig-subject">
+        <label class="elig-row elig-head">
+          <input type="checkbox" data-elig-subject="${key}" ${on ? 'checked' : ''}>
+          <span><strong>${escapeHtml(s.label)}</strong> <span class="fine">— ${escapeHtml(s.teacher)}</span></span>
+        </label>
+        ${s.subOptions ? `
+          <div class="elig-levels">
+            ${s.subOptions.map(l => `
+              <label class="elig-row">
+                <input type="checkbox" data-elig-level="${key}" value="${escapeHtml(l)}" ${chosen.includes(l) ? 'checked' : ''}>
+                <span>${escapeHtml(l)}</span>
+              </label>`).join('')}
+          </div>` : `<div class="elig-levels"><span class="fine">No separate course levels — the whole subject.</span></div>`}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function collectEligibility(){
+  const root = document.getElementById('elig-picker');
+  if (!root) return null;
+  const out = {};
+  root.querySelectorAll('[data-elig-subject]').forEach(cb => {
+    if (!cb.checked) return;
+    const key = cb.dataset.eligSubject;
+    const subj = CONFIG.SUBJECTS[key];
+    if (!subj.subOptions){ out[key] = []; return; }
+    out[key] = Array.from(root.querySelectorAll(`[data-elig-level="${key}"]`))
+      .filter(l => l.checked).map(l => l.value);
+  });
+  return out;
+}
+function validateEligibility(elig){
+  const keys = Object.keys(elig || {});
+  if (!keys.length) return 'Pick at least one subject this tutor can teach.';
+  for (const key of keys){
+    const subj = CONFIG.SUBJECTS[key];
+    if (subj.subOptions && !elig[key].length){
+      return `Pick at least one course level for ${subj.label}, or uncheck that subject.`;
+    }
+  }
+  return null;
 }
 
 function compressImage(file, maxDim=1000, quality=0.72){
@@ -163,7 +283,10 @@ function render(){
       ${state.view === 'tutor' ? renderTutorView() : ''}
       ${state.view === 'admin' ? renderAdminView() : ''}
     </div>
-    <p class="footer-note">Science tutoring sign-up desk — backed by a real server, not just this browser tab.</p>
+    <p class="footer-note">
+      Need a change, an improvement, or found a bug? Email
+      <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a> and it'll get looked at.
+    </p>
   `;
   renderToasts();
 }
@@ -185,13 +308,18 @@ function renderMasthead(){
 
 /* --------------------------- TUTEE VIEW ----------------------------------- */
 function renderTuteeView(){
-  const dates = getEligibleDates(new Date(), CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
+  const now = new Date();
+  const dates = getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
+  const closed = upcomingNoTutoringDates(now);
   const windowNote = dates.length
     ? `Open days right now: ${dates.map(fmtShort).join(', ')}. Each subject only meets on its teacher's usual days below.`
-    : `No sign-up days are open right now — check back Monday morning.`;
+    : (closed.length
+        ? `No sign-up days are open — the next two weeks are school holidays or breaks.`
+        : `No sign-up days are open right now — check back Monday morning.`);
   return `
     <h2 class="section-title">Request a tutor</h2>
     <p class="section-sub">Sign-ups close for the current day at ${fmtHour(CONFIG.TUTEE_CUTOFF)}. ${windowNote}</p>
+    ${closedDaysNote(now)}
 
     <form id="tutee-form" data-form="tutee-request">
       <div class="grid-2">
@@ -201,7 +329,7 @@ function renderTuteeView(){
         </div>
         <div class="field">
           <label class="req">Your email</label>
-          <input name="tuteeEmail" type="email" required maxlength="120" placeholder="you@student.school.edu" />
+          <input name="tuteeEmail" type="email" required maxlength="120" placeholder="${EXAMPLE_EMAIL}" />
         </div>
       </div>
       <div class="grid-2">
@@ -235,7 +363,7 @@ function renderTuteeView(){
     <form id="tutee-lookup-form" data-form="tutee-lookup" class="grid-2" style="align-items:end;">
       <div class="field" style="margin-bottom:0;">
         <label>Your email</label>
-        <input name="lookupEmail" type="email" placeholder="you@student.school.edu" value="${escapeHtml(state.lastSubmittedEmail||'')}" />
+        <input name="lookupEmail" type="email" placeholder="${EXAMPLE_EMAIL}" value="${escapeHtml(state.lastSubmittedEmail||'')}" />
       </div>
       <div class="field" style="margin-bottom:0;">
         <button type="submit" class="btn">Look up my requests</button>
@@ -261,7 +389,12 @@ function renderTicket(t, context){
   let actions = '';
   let taskBanner = '';
   if (context === 'tutor-board' && t.status === 'open'){
-    actions = `<button class="btn btn-primary btn-small" data-action="claim-ticket" data-id="${t.id}">Sign up to tutor</button>`;
+    // blockedReason comes from the server: they're cleared for this subject
+    // but already booked in another room that day, or already have three here.
+    actions = t.blockedReason
+      ? `<button class="btn btn-primary btn-small" disabled>Sign up to tutor</button>
+         <span class="fine">${escapeHtml(t.blockedReason)}</span>`
+      : `<button class="btn btn-primary btn-small" data-action="claim-ticket" data-id="${t.id}">Sign up to tutor</button>`;
   }
   if (context === 'tutor-mine'){
     const canCancel = t.status === 'claimed' && dateObj.getTime() > todayMidnight().getTime();
@@ -332,7 +465,7 @@ function renderTutorAuth(){
       <form data-form="${isSignup ? 'tutor-signup' : 'tutor-login'}">
         <div class="field">
           <label class="req">School email</label>
-          <input name="email" type="email" required placeholder="you@school.edu" />
+          <input name="email" type="email" required placeholder="${EXAMPLE_EMAIL}" />
         </div>
         <div class="field">
           <label class="req">Password</label>
@@ -382,7 +515,8 @@ function renderTutorVerification(tutor){
   `;
 }
 function renderTutorDashboard(tutor){
-  const dates = getEligibleDates(new Date(), CONFIG.TUTOR_CUTOFF.h, CONFIG.TUTOR_CUTOFF.m).map(fmtISO);
+  const now = new Date();
+  const dates = getEligibleDates(now, CONFIG.TUTOR_CUTOFF.h, CONFIG.TUTOR_CUTOFF.m).map(fmtISO);
   const open = (cache.openTickets || []).filter(t => dates.includes(t.date));
   const mine = cache.myTickets || [];
   const docs = cache.myVolDocs || [];
@@ -390,10 +524,23 @@ function renderTutorDashboard(tutor){
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
       <div>
         <h2 class="section-title" style="margin-bottom:2px;">Open tutoring requests</h2>
-        <p class="section-sub" style="margin-bottom:0;">Signed in as ${escapeHtml(tutor.email)}. Sign-ups close at ${fmtHour(CONFIG.TUTOR_CUTOFF)} same-day. Up to ${CONFIG.MAX_PER_SUBJECT_PER_DAY} students per subject per day.</p>
+        <p class="section-sub" style="margin-bottom:0;">Signed in as ${escapeHtml(tutor.email)}. Sign-ups close at ${fmtHour(CONFIG.TUTOR_CUTOFF)} same-day. Up to ${CONFIG.MAX_PER_ROOM_PER_DAY} students a day, all in the same teacher's room — your first sign-up of the day picks the room.</p>
       </div>
       <button class="btn btn-ghost btn-small" data-action="tutor-logout">Sign out</button>
     </div>
+
+    <div class="elig-panel">
+      <h3 class="elig-panel-title">What you're approved to tutor</h3>
+      <div class="elig-chip-row">${eligibilityChips(tutor.eligibility)}</div>
+      <p class="fine" style="margin:8px 0 0;">
+        ${tutor.eligibility
+          ? 'Only requests matching these subjects and course levels appear on your board.'
+          : 'An admin hasn\'t set your subjects yet, so every request is showing. Ask an admin to set them.'}
+        Something look wrong? Email <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>.
+      </p>
+    </div>
+    ${closedDaysNote(now)}
+
     <div style="margin:16px 0 26px;">
       ${open.length ? `<div class="ticket-list">${open.map(t=>renderTicket(t,'tutor-board')).join('')}</div>` : `<div class="empty-state">No open requests in your sign-up window right now.</div>`}
     </div>
@@ -454,14 +601,29 @@ function renderAdminDashboard(admin){
     ['sessions','All Sessions'],
     ['tutors','Tutor Roster'],
     ['volhours','Volunteer Hours'],
-    ['submit','Submit a Request'],
     ['tutorboard','Tutor Board'],
+    // Only the owner admin can add or remove other admins, so only they see
+    // this tab. The server enforces it too.
+    ...(admin.isSuper ? [['admins','Admin Accounts']] : []),
     ['account','Account']
   ];
+
+  // The browser loads app.js fresh from disk on every visit, but the server
+  // only picks up src/ changes when its process restarts. If those two get out
+  // of step, features look present but quietly do nothing — so say so plainly
+  // rather than letting an admin chase a phantom bug.
+  const staleServer = admin.isSuper === undefined;
+  const staleBanner = staleServer
+    ? `<div class="notice"><strong>The server is running older code than this page.</strong>
+         Subject clearances and admin-account controls won't work until the server process is
+         restarted (stop it and run <strong>npm start</strong> again). Restarting also adds the
+         database columns these features need.</div>`
+    : '';
 
   let body = '';
   if (state.adminSubtab === 'overview'){
     body = `
+      ${staleBanner}
       ${admin.mustChangePassword ? `<div class="notice">This account is still using its auto-generated password. Head to <strong>Account</strong> to set your own.</div>` : ''}
       <div class="stat-row">
         <div class="stat"><div class="num">${open}</div><div class="lbl">Open requests</div></div>
@@ -470,12 +632,12 @@ function renderAdminDashboard(admin){
         <div class="stat"><div class="num">${pendingTutors.length}</div><div class="lbl">Tutors awaiting verification</div></div>
         <div class="stat"><div class="num">${tutors.filter(t=>t.verificationStatus==='approved').length}</div><div class="lbl">Approved tutors</div></div>
       </div>
-      <p class="section-sub">Use the tabs above to review tutor verifications, manage sessions, send volunteer-hours PDFs, or act as a tutee/tutor yourself.</p>
+      <p class="section-sub">Use the tabs above to review tutor verifications, manage sessions, send volunteer-hours PDFs, or claim a session yourself.</p>
     `;
   } else if (state.adminSubtab === 'verifications'){
     body = `
       <h2 class="section-title">Tutor verifications</h2>
-      <p class="section-sub">Tutors upload a photo of their completed verification form — review it and approve or reject.</p>
+      <p class="section-sub">Tutors upload a photo of their completed verification form — review it, then approve them for the specific subjects and course levels they're allowed to teach, or reject them.</p>
       ${pendingTutors.length ? `
         <table class="roster">
           <thead><tr><th>Email</th><th>Submitted</th><th>Verification Form</th><th>Decision</th></tr></thead>
@@ -487,7 +649,7 @@ function renderAdminDashboard(admin){
               <td><button class="btn btn-ghost btn-small" data-action="view-tutor-form" data-id="${t.id}">View form</button></td>
               <td>
                 <div class="btn-row">
-                  <button class="btn btn-primary btn-small" data-action="approve-tutor" data-id="${t.id}">Approve</button>
+                  <button class="btn btn-primary btn-small" data-action="approve-tutor" data-id="${t.id}">Approve &amp; set subjects</button>
                   <button class="btn btn-danger btn-small" data-action="reject-tutor" data-id="${t.id}">Reject</button>
                 </div>
               </td>
@@ -506,21 +668,38 @@ function renderAdminDashboard(admin){
   } else if (state.adminSubtab === 'tutors'){
     body = `
       <h2 class="section-title">Tutor roster</h2>
+      <p class="section-sub">Change what a tutor is allowed to teach at any time, or delete an account outright.</p>
       ${tutors.length ? `
         <table class="roster">
-          <thead><tr><th>Email</th><th>Status</th><th>Joined</th></tr></thead>
+          <thead><tr><th>Email</th><th>Status</th><th>Approved to tutor</th><th>Joined</th><th></th></tr></thead>
           <tbody>
-            ${tutors.map(t=>`<tr><td>${escapeHtml(t.email)}</td><td>${statusChip(t.verificationStatus)}</td><td>${new Date(t.createdAt).toLocaleDateString()}</td></tr>`).join('')}
+            ${tutors.map(t=>`
+              <tr>
+                <td>${escapeHtml(t.email)}</td>
+                <td>${statusChip(t.verificationStatus)}</td>
+                <td>${t.verificationStatus === 'approved'
+                      ? `<div class="elig-chip-row">${eligibilityChips(t.eligibility)}</div>`
+                      : `<span class="fine">—</span>`}</td>
+                <td>${new Date(t.createdAt).toLocaleDateString()}</td>
+                <td>
+                  <div class="btn-row" style="margin-top:0; justify-content:flex-end;">
+                    ${t.verificationStatus === 'approved'
+                      ? `<button class="btn btn-ghost btn-small" data-action="edit-tutor-eligibility" data-id="${t.id}">Edit subjects</button>`
+                      : ''}
+                    <button class="btn btn-danger btn-small" data-action="delete-tutor" data-id="${t.id}">Delete</button>
+                  </div>
+                </td>
+              </tr>`).join('')}
           </tbody>
         </table>
       ` : `<div class="empty-state">No tutors have signed up yet.</div>`}
     `;
   } else if (state.adminSubtab === 'volhours'){
     body = renderAdminVolunteerHours();
-  } else if (state.adminSubtab === 'submit'){
-    body = renderTuteeView();
   } else if (state.adminSubtab === 'tutorboard'){
     body = renderAdminTutorBoard();
+  } else if (state.adminSubtab === 'admins'){
+    body = renderAdminAccounts(admin);
   } else if (state.adminSubtab === 'account'){
     body = `
       <h2 class="section-title">Account settings</h2>
@@ -535,7 +714,11 @@ function renderAdminDashboard(admin){
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost btn-small" data-action="admin-logout">Sign out</button>
-        <button class="btn btn-danger btn-small" data-action="reset-all-data">Clear all data</button>
+        ${/* Owner-only: wiping every tutor and session is not something an
+             admin the owner created should be able to do. Server enforced. */
+          admin.isSuper
+            ? `<button class="btn btn-danger btn-small" data-action="reset-all-data">Clear all data</button>`
+            : ''}
       </div>
     `;
   }
@@ -581,13 +764,68 @@ function renderAdminVolunteerHours(){
     `).join('')}</div>` : `<div class="empty-state">No documents sent to this tutor yet.</div>`}
   `;
 }
+function renderAdminAccounts(admin){
+  const admins = cache.admins || [];
+  return `
+    <h2 class="section-title">Admin accounts</h2>
+    <p class="section-sub">
+      You're signed in as the <strong>owner admin</strong>, so you're the only one who can add or remove admins.
+      Admins you create here can run everything else — verifications, sessions, volunteer hours — but they can't
+      create or delete admin accounts, and they can't remove you.
+    </p>
+    ${admins.length ? `
+      <table class="roster">
+        <thead><tr><th>Email</th><th>Role</th><th>Added</th><th></th></tr></thead>
+        <tbody>
+          ${admins.map(a=>`
+            <tr>
+              <td>${escapeHtml(a.email)}${a.id===admin.id?` <span class="fine">(you)</span>`:''}</td>
+              <td>${a.isSuper
+                    ? `<span class="chip chip-approved">Owner</span>`
+                    : `<span class="chip chip-open">Admin</span>`}
+                  ${a.mustChangePassword && !a.isSuper ? `<span class="fine"> · hasn't set their own password yet</span>` : ''}</td>
+              <td>${new Date(a.createdAt).toLocaleDateString()}</td>
+              <td>
+                <div class="btn-row" style="margin-top:0; justify-content:flex-end;">
+                  ${a.isSuper
+                    ? `<span class="fine">Can't be deleted</span>`
+                    : `<button class="btn btn-danger btn-small" data-action="delete-admin" data-id="${a.id}">Delete</button>`}
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    ` : `<div class="empty-state">No admin accounts loaded.</div>`}
+
+    <hr class="divider" />
+    <h3 style="font-size:16px;">Add an admin</h3>
+    <p class="section-sub">Give them a temporary password and pass it on in person — they'll be asked to change it after signing in.</p>
+    <form data-form="admin-create" class="auth-card" style="margin:0;">
+      <div class="field">
+        <label class="req">Their school email</label>
+        <input name="email" type="email" required placeholder="${EXAMPLE_EMAIL}" />
+      </div>
+      <div class="field">
+        <label class="req">Temporary password</label>
+        <input name="password" type="password" required minlength="8" placeholder="At least 8 characters" />
+      </div>
+      <div class="field">
+        <label class="req">Confirm temporary password</label>
+        <input name="confirmPassword" type="password" required minlength="8" />
+      </div>
+      <button type="submit" class="btn btn-primary">Create admin account</button>
+    </form>
+  `;
+}
 function renderAdminTutorBoard(){
-  const dates = getEligibleDates(new Date(), CONFIG.TUTOR_CUTOFF.h, CONFIG.TUTOR_CUTOFF.m).map(fmtISO);
+  const now = new Date();
+  const dates = getEligibleDates(now, CONFIG.TUTOR_CUTOFF.h, CONFIG.TUTOR_CUTOFF.m).map(fmtISO);
   const open = (cache.openTickets || []).filter(t => dates.includes(t.date));
   const mine = cache.myTickets || [];
   return `
     <h2 class="section-title">Tutor board (acting as admin)</h2>
-    <p class="section-sub">Admins can also claim requests directly, the same way a tutor would.</p>
+    <p class="section-sub">Admins can also claim requests directly, the same way a tutor would — and aren't limited to a subject list.</p>
+    ${closedDaysNote(now)}
     ${open.length ? `<div class="ticket-list">${open.map(t=>renderTicket(t,'tutor-board')).join('')}</div>` : `<div class="empty-state">No open requests in the current sign-up window.</div>`}
     <hr class="divider" />
     <h3 style="font-size:16px;">My claimed sessions (as admin)</h3>
@@ -626,6 +864,9 @@ async function loadAndRender(){
       if (state.adminSubtab === 'tutorboard'){
         const [open, mine] = await Promise.all([api('GET','/api/tickets/open'), api('GET','/api/tickets/mine')]);
         cache.openTickets = open; cache.myTickets = mine;
+      }
+      if (state.adminSubtab === 'admins' && session.admin.isSuper){
+        cache.admins = await api('GET','/api/admin/admins');
       }
     }
   }catch(err){ pushToast(err.message, 'error'); }
@@ -729,9 +970,82 @@ async function handleProofFile(input){
     await loadAndRender();
   }catch(err){ pushToast(err.message,'error'); }
 }
-async function handleApproveTutor(id){
-  try{ await api('POST', `/api/admin/tutors/${id}/approve`); pushToast('Tutor approved.','success'); await loadAndRender(); }
-  catch(err){ pushToast(err.message,'error'); }
+// Approving a tutor and editing an approved tutor's subjects use the same
+// picker — the only difference is which endpoint it saves to.
+function openEligibilityModal(id, mode){
+  const tutor = (cache.tutors || []).find(t => t.id === id);
+  if (!tutor){ pushToast('That tutor is no longer in the list.','error'); return; }
+  const heading = mode === 'approve' ? 'Approve tutor' : 'Edit what this tutor can teach';
+  const cta = mode === 'approve' ? 'Approve tutor' : 'Save changes';
+  showModal(`
+    <h3 style="margin-bottom:2px;">${heading}</h3>
+    <p class="section-sub" style="margin-bottom:14px;">
+      ${escapeHtml(tutor.email)} — tick every subject they may tutor, and for subjects with course levels, exactly which levels.
+    </p>
+    ${eligibilityPicker(tutor.eligibility)}
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn btn-primary btn-small" data-action="save-eligibility" data-id="${id}" data-mode="${mode}">${cta}</button>
+      <button class="btn btn-ghost btn-small" data-action="close-modal">Cancel</button>
+    </div>
+  `);
+}
+async function handleSaveEligibility(id, mode){
+  const eligibility = collectEligibility();
+  const problem = validateEligibility(eligibility);
+  if (problem){ pushToast(problem, 'error'); return; }
+  try{
+    if (mode === 'approve'){
+      await api('POST', `/api/admin/tutors/${id}/approve`, { eligibility });
+      pushToast('Tutor approved and their subjects are set.','success');
+    } else {
+      await api('PUT', `/api/admin/tutors/${id}/eligibility`, { eligibility });
+      pushToast('Subjects updated.','success');
+    }
+    closeModal();
+    await loadAndRender();
+  }catch(err){ pushToast(err.message,'error'); }
+}
+async function handleDeleteTutor(id){
+  const tutor = (cache.tutors || []).find(t => t.id === id);
+  const who = tutor ? tutor.email : 'this tutor';
+  if (!confirm(
+    `Delete the tutor account for ${who}?\n\n` +
+    `This permanently removes their account and any volunteer-hours PDFs sent to them. ` +
+    `Sessions they'd claimed but not finished go back on the open board for another tutor. ` +
+    `This cannot be undone.`
+  )) return;
+  try{
+    const res = await api('DELETE', `/api/admin/tutors/${id}`);
+    pushToast(
+      `Deleted ${res.email}.` + (res.reopenedSessions ? ` ${res.reopenedSessions} session(s) reopened.` : ''),
+      'info'
+    );
+    await loadAndRender();
+  }catch(err){ pushToast(err.message,'error'); }
+}
+async function handleCreateAdmin(form){
+  const fd = new FormData(form);
+  const payload = {
+    email: (fd.get('email')||'').trim(),
+    password: fd.get('password')||'',
+    confirmPassword: fd.get('confirmPassword')||''
+  };
+  try{
+    const created = await api('POST','/api/admin/admins', payload);
+    pushToast(`Admin account created for ${created.email}.`,'success');
+    form.reset();
+    await loadAndRender();
+  }catch(err){ pushToast(err.message,'error'); }
+}
+async function handleDeleteAdmin(id){
+  const target = (cache.admins || []).find(a => a.id === id);
+  const who = target ? target.email : 'this admin';
+  if (!confirm(`Delete the admin account for ${who}?\n\nThey'll lose access immediately. This cannot be undone.`)) return;
+  try{
+    const res = await api('DELETE', `/api/admin/admins/${id}`);
+    pushToast(`Deleted admin ${res.email}.`,'info');
+    await loadAndRender();
+  }catch(err){ pushToast(err.message,'error'); }
 }
 async function handleRejectTutor(id){
   try{ await api('POST', `/api/admin/tutors/${id}/reject`); pushToast('Tutor verification rejected.','info'); await loadAndRender(); }
@@ -786,7 +1100,7 @@ async function handleResetAllData(){
   try{
     await api('POST','/api/admin/reset');
     pushToast('All data cleared.','info');
-    cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], volDocsForTutor: [] };
+    cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocsForTutor: [] };
     state.volHoursSelectedTutor = null;
     await loadAndRender();
   }catch(err){ pushToast(err.message,'error'); }
@@ -847,11 +1161,27 @@ document.addEventListener('submit', async (e)=>{
     else if (kind === 'admin-login') await handleAdminLogin(form);
     else if (kind === 'admin-change-password') await handleAdminChangePassword(form);
     else if (kind === 'admin-send-volhours') await handleAdminSendVolHours(form);
+    else if (kind === 'admin-create') await handleCreateAdmin(form);
   }catch(err){ console.error(err); pushToast('Something went wrong: ' + err.message, 'error'); }
 });
 
 document.addEventListener('change', async (e)=>{
   if (e.target.id === 'tutee-subject-select'){ updateTuteeDependentFields(e.target.value); return; }
+  // Subject/level checkboxes in the eligibility picker move together: ticking
+  // a subject grants all of its levels, and ticking any level grants the
+  // subject it belongs to.
+  if (e.target.matches('[data-elig-subject]')){
+    const key = e.target.dataset.eligSubject;
+    document.querySelectorAll(`[data-elig-level="${key}"]`).forEach(cb => { cb.checked = e.target.checked; });
+    return;
+  }
+  if (e.target.matches('[data-elig-level]')){
+    const key = e.target.dataset.eligLevel;
+    const anyOn = Array.from(document.querySelectorAll(`[data-elig-level="${key}"]`)).some(cb => cb.checked);
+    const subjectBox = document.querySelector(`[data-elig-subject="${key}"]`);
+    if (subjectBox) subjectBox.checked = anyOn;
+    return;
+  }
   if (e.target.id === 'volhours-tutor-select'){
     state.volHoursSelectedTutor = e.target.value;
     await loadVolHoursForSelectedTutor();
@@ -877,7 +1207,11 @@ document.addEventListener('click', async (e)=>{
     else if (action === 'cancel-ticket-self') await handleSelfCancel(id);
     else if (action === 'cancel-ticket-admin') await handleAdminCancel(id);
     else if (action === 'withdraw-ticket') await handleWithdraw(id);
-    else if (action === 'approve-tutor') await handleApproveTutor(id);
+    else if (action === 'approve-tutor') openEligibilityModal(id, 'approve');
+    else if (action === 'edit-tutor-eligibility') openEligibilityModal(id, 'edit');
+    else if (action === 'save-eligibility') await handleSaveEligibility(id, btn.dataset.mode);
+    else if (action === 'delete-tutor') await handleDeleteTutor(id);
+    else if (action === 'delete-admin') await handleDeleteAdmin(id);
     else if (action === 'reject-tutor') await handleRejectTutor(id);
     else if (action === 'view-tutor-form') handleViewTutorForm(id);
     else if (action === 'view-proof-photo') handleViewProofPhoto(id);

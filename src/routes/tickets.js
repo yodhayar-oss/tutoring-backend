@@ -3,8 +3,9 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { get, all, run } = require('../db');
 const {
-  SUBJECTS, TUTEE_CUTOFF, TUTOR_CUTOFF, MAX_PER_SUBJECT_PER_DAY,
-  isDateEligibleForSubject, getEligibleDates, fmtISO, parseISO, todayMidnight
+  SUBJECTS, TUTEE_CUTOFF, TUTOR_CUTOFF,
+  isDateEligibleForSubject, getEligibleDates, canTutor, roomConflict,
+  fmtISO, parseISO, todayMidnight
 } = require('../eligibility');
 const { serializeTicket } = require('../serialize');
 const { requireActor, requireAdmin } = require('../auth-middleware');
@@ -54,12 +55,41 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(rows.map(serializeTicket));
 }));
 
-// --- Open tickets within the signed-in actor's own sign-up window ---
+// --- Open tickets within the signed-in actor's own sign-up window, limited
+//     to the subjects and course levels they're cleared to teach.
+//     Requests they're cleared for but can't take today — because they're
+//     already booked in another teacher's room, or already have three in this
+//     one — still come back, carrying `blockedReason` so the board can show
+//     them greyed out with an explanation instead of silently dropping them. ---
 router.get('/open', asyncHandler(requireActor), asyncHandler(async (req, res) => {
   const allowedDates = new Set(getEligibleDates(new Date(), TUTOR_CUTOFF.h, TUTOR_CUTOFF.m).map(fmtISO));
   const rows = await all("SELECT * FROM tickets WHERE status = 'open'");
-  res.json(rows.filter(t => allowedDates.has(t.date)).map(serializeTicket));
+  const held = await bookedSubjectsByDate(req.actor.id);
+
+  res.json(
+    rows
+      .filter(t => allowedDates.has(t.date))
+      .filter(t => canTutor(req.actor.eligibility, t.subject_key, t.sub_option))
+      .map(t => ({
+        ...serializeTicket(t),
+        blockedReason: roomConflict(held.get(t.date) || [], t.subject_key)
+      }))
+  );
 }));
+
+// date -> [subject keys this actor already holds that day], cancelled excluded.
+async function bookedSubjectsByDate(actorId) {
+  const rows = await all(
+    "SELECT date, subject_key FROM tickets WHERE tutor_id = ? AND status != 'cancelled'",
+    [actorId]
+  );
+  const byDate = new Map();
+  for (const r of rows) {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r.subject_key);
+  }
+  return byDate;
+}
 
 // --- Tickets claimed by the signed-in actor ---
 router.get('/mine', asyncHandler(requireActor), asyncHandler(async (req, res) => {
@@ -90,13 +120,16 @@ router.post('/:id/claim', asyncHandler(requireActor), asyncHandler(async (req, r
   if (!t || t.status !== 'open') return res.status(400).json({ error: 'That request is no longer open.' });
   const allowedDates = new Set(getEligibleDates(new Date(), TUTOR_CUTOFF.h, TUTOR_CUTOFF.m).map(fmtISO));
   if (!allowedDates.has(t.date)) return res.status(400).json({ error: 'That day is outside your current sign-up window.' });
-  const countRow = await get(
-    `SELECT COUNT(*) as c FROM tickets WHERE tutor_id = ? AND subject_key = ? AND date = ? AND status != 'cancelled'`,
-    [req.actor.id, t.subject_key, t.date]
-  );
-  if ((countRow ? countRow.c : 0) >= MAX_PER_SUBJECT_PER_DAY) {
-    return res.status(400).json({ error: `You've already signed up to tutor ${MAX_PER_SUBJECT_PER_DAY} students for this subject on that day.` });
+  if (!canTutor(req.actor.eligibility, t.subject_key, t.sub_option)) {
+    return res.status(403).json({ error: "You aren't approved to tutor that subject or course level. Ask an admin if this looks wrong." });
   }
+  // One room per tutor per day, up to three students in it.
+  const sameDay = await all(
+    "SELECT subject_key FROM tickets WHERE tutor_id = ? AND date = ? AND status != 'cancelled'",
+    [req.actor.id, t.date]
+  );
+  const conflict = roomConflict(sameDay.map(r => r.subject_key), t.subject_key);
+  if (conflict) return res.status(400).json({ error: conflict });
   await run(
     `UPDATE tickets SET status='claimed', tutor_id=?, tutor_email=?, claimed_at=? WHERE id=?`,
     [req.actor.id, req.actor.email, Date.now(), t.id]

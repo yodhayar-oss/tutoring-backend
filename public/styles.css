@@ -185,3 +185,37 @@ table.roster td{ padding:8px 8px; border-bottom:1px solid var(--line); vertical-
 .divider{ height:1px; background:var(--line); margin:24px 0; border:none; }
 .fine{ font-size:12px; color:var(--ink-faint); }
 .footer-note{ margin-top:32px; font-size:12px; color:var(--ink-faint); text-align:center; }
+
+/* Days the school calendar closes tutoring */
+.closed-note{
+  border:1px dashed var(--line-strong); background:var(--paper-alt);
+  border-radius:6px; padding:9px 12px; margin:0 0 18px;
+  font-size:12.5px; color:var(--ink-soft);
+}
+.closed-note strong{ color:var(--ink); }
+
+/* What a tutor is cleared to teach */
+.elig-panel{ border:1px solid var(--line); border-radius:6px; background:var(--paper-alt); padding:12px 14px; margin:14px 0 6px; }
+.elig-panel-title{ font-size:14.5px; margin:0 0 8px; }
+.elig-chip-row{ display:flex; flex-wrap:wrap; gap:6px; }
+.elig-chip{
+  display:inline-flex; flex-direction:column; gap:1px;
+  border:1px solid var(--line-strong); border-left-width:4px;
+  border-radius:4px; padding:4px 9px; background:var(--card);
+  font-size:12.5px; font-weight:600; color:var(--ink);
+}
+.elig-chip.subj-biology{ border-left-color:var(--bio); }
+.elig-chip.subj-chemistry{ border-left-color:var(--chem); }
+.elig-chip.subj-physics{ border-left-color:var(--phys); }
+.elig-chip.subj-envsci{ border-left-color:var(--env); }
+.elig-chip.subj-psychology{ border-left-color:var(--psych); }
+.elig-chip-levels{ font-weight:400; font-size:11px; color:var(--ink-faint); }
+
+/* Subject/level picker inside the approve + edit modal */
+.elig-picker{ display:flex; flex-direction:column; gap:10px; }
+.elig-subject{ border:1px solid var(--line); border-radius:6px; padding:9px 11px; background:var(--paper-alt); }
+.elig-row{ display:flex; align-items:flex-start; gap:8px; margin:0; font-size:13.5px; font-weight:400; color:var(--ink); cursor:pointer; }
+.elig-row + .elig-row{ margin-top:5px; }
+.elig-row input[type=checkbox]{ width:auto; margin:2px 0 0; flex-shrink:0; }
+.elig-head{ font-size:14px; }
+.elig-levels{ margin:7px 0 0 24px; }

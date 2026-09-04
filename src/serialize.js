@@ -1,4 +1,4 @@
-const { SUBJECTS } = require('./eligibility');
+const { SUBJECTS, parseEligibility } = require('./eligibility');
 
 function serializeTicket(t) {
   const subj = SUBJECTS[t.subject_key];
@@ -27,7 +27,20 @@ function serializeTutor(t) {
     email: t.email,
     verificationStatus: t.verification_status,
     hasVerificationForm: !!t.verification_form_data,
+    // null = approved before per-subject clearances existed, so they can
+    // currently tutor anything (see src/eligibility.js).
+    eligibility: parseEligibility(t.eligibility),
     createdAt: t.created_at
+  };
+}
+
+function serializeAdmin(a) {
+  return {
+    id: a.id,
+    email: a.email,
+    isSuper: !!a.is_super,
+    mustChangePassword: !!a.must_change_password,
+    createdAt: a.created_at
   };
 }
 
@@ -41,4 +54,4 @@ function serializeVolDoc(d) {
   };
 }
 
-module.exports = { serializeTicket, serializeTutor, serializeVolDoc };
+module.exports = { serializeTicket, serializeTutor, serializeAdmin, serializeVolDoc };

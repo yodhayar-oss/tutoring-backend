@@ -97,6 +97,28 @@ async function initDb() {
   await exec(`CREATE INDEX IF NOT EXISTS idx_tickets_tutor ON tickets(tutor_id)`);
   await exec(`CREATE INDEX IF NOT EXISTS idx_tickets_tutee_email ON tickets(tutee_email)`);
   await exec(`CREATE INDEX IF NOT EXISTS idx_volhours_tutor ON volunteer_hours_docs(tutor_id)`);
+
+  await migrate();
+}
+
+// SQLite has no "ADD COLUMN IF NOT EXISTS", so check the table first. These
+// run on every start and do nothing once the column is already there, which
+// means an existing database picks up new features without being rebuilt.
+async function addColumnIfMissing(table, column, definition) {
+  const cols = await all(`PRAGMA table_info(${table})`);
+  if (cols.some(c => c.name === column)) return;
+  await exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+async function migrate() {
+  // Which subjects/course levels a tutor is cleared to teach, as JSON.
+  // NULL on rows approved before this feature existed — see src/eligibility.js.
+  await addColumnIfMissing('tutors', 'eligibility', 'TEXT');
+  // Exactly one admin (the first-run one) is the "owner" who may create and
+  // delete other admins. Everyone else gets 0.
+  await addColumnIfMissing('admins', 'is_super', 'INTEGER NOT NULL DEFAULT 0');
+  // Who created this admin account, for the roster display.
+  await addColumnIfMissing('admins', 'created_by_admin_id', 'TEXT');
 }
 
 module.exports = { client, all, get, run, exec, initDb };

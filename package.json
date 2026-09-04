@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test:dates": "node tools/verify-blackout-dates.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
