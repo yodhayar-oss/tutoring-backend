@@ -756,7 +756,6 @@ function renderAdminVolunteerHours(){
               </label>`).join('')}
           </div>
           <div class="btn-row" style="margin-top:8px;">
-            <button type="button" class="btn btn-ghost btn-small" data-action="volhours-select-all">Select all</button>
             <button type="button" class="btn btn-ghost btn-small" data-action="volhours-clear">Clear</button>
           </div>
         ` : `<div class="empty-state">No approved tutors yet.</div>`}
@@ -1223,9 +1222,8 @@ document.addEventListener('click', async (e)=>{
     else if (action === 'reject-tutor') await handleRejectTutor(id);
     else if (action === 'view-tutor-form') handleViewTutorForm(id);
     else if (action === 'view-proof-photo') handleViewProofPhoto(id);
-    else if (action === 'volhours-select-all' || action === 'volhours-clear'){
-      const on = action === 'volhours-select-all';
-      document.querySelectorAll('#volhours-tutor-list input[type=checkbox]').forEach(cb => { cb.checked = on; });
+    else if (action === 'volhours-clear'){
+      document.querySelectorAll('#volhours-tutor-list input[type=checkbox]').forEach(cb => { cb.checked = false; });
     }
     else if (action === 'close-modal') closeModal();
     else if (action === 'reset-all-data') await handleResetAllData();

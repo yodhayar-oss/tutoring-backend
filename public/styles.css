@@ -211,10 +211,11 @@ table.roster td{ padding:8px 8px; border-bottom:1px solid var(--line); vertical-
 .elig-chip.subj-psychology{ border-left-color:var(--psych); }
 .elig-chip-levels{ font-weight:400; font-size:11px; color:var(--ink-faint); }
 
-/* Scrollable tick-list — used to pick which tutors a PDF goes to */
+/* Tick-list — used to pick which tutors a PDF goes to. No inner scrolling:
+   the box grows to fit every tutor so none of them can be hidden off-screen. */
 .check-list{
   border:1px solid var(--line-strong); border-radius:var(--radius-s);
-  background:var(--card); padding:8px 10px; max-height:220px; overflow-y:auto;
+  background:var(--card); padding:8px 10px;
 }
 .check-row{
   display:flex; align-items:center; gap:8px; margin:0;

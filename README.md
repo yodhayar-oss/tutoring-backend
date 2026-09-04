@@ -142,9 +142,9 @@ follows automatically.
 **Admin → Volunteer Hours** sends one PDF to as many tutors as you tick, in a
 single upload. Each recipient gets their own row in the database, so they can
 download their own copy and deleting one tutor never removes another's
-document. **Select all** / **Clear** are there for the common "everyone who
-tutored this term" case, and ticking the same person twice still sends one
-copy.
+document. The list shows every approved tutor at full height — no inner
+scrolling, so nobody is hidden — and **Clear** unticks them all. Ticking the
+same person twice still sends one copy.
 
 Below the form, **Everything sent so far** lists every document grouped by
 the tutor it went to.
