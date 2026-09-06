@@ -47,11 +47,15 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 let session = { tutor: null, admin: null };
 let cache = { lookupTickets: null, openTickets: [], myTickets: [], myVolDocs: [], allTickets: [], tutors: [], admins: [], volDocs: [] };
 let state = {
-  view: 'tutee',
+  view: 'home',
   adminSubtab: 'overview',
   tutorAuthMode: 'login',
   tuteeLookupEmail: null,
-  lastSubmittedEmail: ''
+  lastSubmittedEmail: '',
+  // The booking form is re-rendered from scratch on every render(), so the
+  // two fields a visitor is most likely to have already picked live here.
+  calSubject: '',
+  calDate: ''
 };
 let toasts = [];
 let toastCounter = 0;
@@ -267,114 +271,374 @@ document.getElementById('toast-wrap').addEventListener('click', e=>{
   renderToasts();
 });
 
+/* ============================== ICONS ==================================== */
+/* Inline so the page needs no icon font or extra request. Each one inherits
+   the current text colour. */
+const ICONS = {
+  sparkle: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.3 6.2 6.2 2.3-6.2 2.3L12 19.5l-2.3-6.2L3.5 11l6.2-2.3z"/></svg>',
+  sparkleLg: '<svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.3 6.2 6.2 2.3-6.2 2.3L12 19.5l-2.3-6.2L3.5 11l6.2-2.3z"/></svg>',
+  sun: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  calendar: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>',
+  people: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 19.5v-1.6a3.6 3.6 0 0 0-3.6-3.6H7.6A3.6 3.6 0 0 0 4 17.9v1.6"/><circle cx="10" cy="8" r="3.3"/><path d="M20 19.5v-1.6a3.6 3.6 0 0 0-2.7-3.5M15.6 4.9a3.3 3.3 0 0 1 0 6.3"/></svg>'
+};
+
+/* ============================== THEME ==================================== */
+function currentTheme(){
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+function toggleTheme(){
+  const next = currentTheme() === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', next === 'light' ? '#FBFBFD' : '#0A0A0C');
+  try{ localStorage.setItem('sas-theme', next); }catch(e){ /* private mode — this visit only */ }
+  render();
+}
+
 /* ============================== RENDER =================================== */
 function render(){
-  const app = document.getElementById('app');
-  app.innerHTML = `
-    ${renderMasthead()}
-    <div class="tabs">
-      ${tabBtn('tutee','Book a Session')}
-      ${tabBtn('tutor','Tutor Sign-In')}
-      ${tabBtn('admin','Admin')}
-    </div>
-    <div class="panel">
-      ${state.view === 'tutee' ? renderTuteeView() : ''}
-      ${state.view === 'tutor' ? renderTutorView() : ''}
-      ${state.view === 'admin' ? renderAdminView() : ''}
-    </div>
-    <p class="footer-note">
-      Need a change, an improvement, or found a bug? Email
-      <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a> and it'll get looked at.
-    </p>
-  `;
+  document.getElementById('site-header').innerHTML = renderHeader();
+  document.getElementById('app').innerHTML = renderMain();
+  document.getElementById('site-footer').innerHTML = renderFooter();
+  afterRender();
   renderToasts();
 }
-function tabBtn(key, label){
-  return `<button class="tab ${state.view===key?'active':''}" data-action="switch-view" data-target="${key}">${label}</button>`;
+
+/* Re-applies the parts of the booking form that live in `state` rather than
+   in the DOM, so a re-render doesn't throw away a half-filled form. */
+function afterRender(){
+  if (state.view === 'calendar' && state.calSubject){
+    updateTuteeDependentFields(state.calSubject);
+  }
 }
-function renderMasthead(){
-  const now = new Date();
+
+function renderMain(){
+  if (state.view === 'home') return renderHome();
+  const body =
+    state.view === 'calendar' ? renderCalendarView() :
+    state.view === 'tutor'    ? renderTutorView() :
+    state.view === 'admin'    ? renderAdminView() : '';
+  return `<div class="container page">${body}</div>`;
+}
+
+function renderHeader(){
+  const signedIn = !!(session.tutor || session.admin);
+  const email = session.admin ? session.admin.email : (session.tutor ? session.tutor.email : '');
+  const light = currentTheme() === 'light';
+  const nav = [['home','Home'], ['calendar','Calendar']];
+  if (session.tutor) nav.push(['tutor','Dashboard']);
+  if (session.admin) nav.push(['admin','Admin']);
   return `
-    <div class="masthead">
-      <div>
-        <h1 class="brand-title">Science Tutoring — Sign-Up Desk</h1>
-        <p class="brand-sub">Peer tutoring for Biology, Chemistry, Physics, AP Environmental Science, and AP Psychology.</p>
+    <div class="container">
+      <div class="header-row">
+        <button class="brand" data-action="switch-view" data-target="home">
+          <span class="brand-mark">${ICONS.sparkle}</span>
+          <span class="brand-name">Science All Stars</span>
+        </button>
+        <div class="header-actions">
+          <button class="icon-btn" data-action="toggle-theme"
+                  title="Switch to ${light ? 'dark' : 'light'} mode"
+                  aria-label="Switch to ${light ? 'dark' : 'light'} mode">${light ? ICONS.moon : ICONS.sun}</button>
+          ${signedIn ? `
+            <span class="header-email">${escapeHtml(email)}</span>
+            <button class="btn btn-ghost btn-small" data-action="sign-out">Sign out</button>
+          ` : `
+            <button class="link-btn" data-action="go-login">Log in</button>
+            <button class="btn btn-primary btn-small" data-action="go-signup">Sign up</button>
+          `}
+        </div>
       </div>
-      <div class="today">${fmtLong(now)}<br>${now.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</div>
+      <nav class="site-nav">
+        ${nav.map(([k,l])=>`<button class="nav-link ${state.view===k?'active':''}" data-action="switch-view" data-target="${k}">${l}</button>`).join('')}
+      </nav>
     </div>
   `;
 }
 
-/* --------------------------- TUTEE VIEW ----------------------------------- */
-function renderTuteeView(){
+function renderFooter(){
+  return `
+    <div class="container">
+      <div class="footer-inner">
+        <p>Science All Stars · Liberty High School, Frisco ISD</p>
+        <p>Found a bug or want something changed? <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a></p>
+      </div>
+    </div>
+  `;
+}
+
+/* --------------------------- HOME (LANDING) ------------------------------- */
+function renderHome(){
+  const now = new Date();
+  const openDays = getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
+  const status = openDays.length
+    ? `${openDays.length} open sign-up ${openDays.length === 1 ? 'day' : 'days'} in the next two weeks — the next one is ${fmtShort(openDays[0])}.`
+    : `No sign-up days are open right now — check back soon.`;
+
+  const steps = [
+    { icon: ICONS.calendar, cls: '',   step: 'Step 1', title: 'Browse the calendar',
+      body: `Every day tutoring runs, laid out two weeks ahead with the subjects meeting each day. No login needed to look.` },
+    { icon: ICONS.sparkleLg, cls: 'g2', step: 'Step 2', title: 'Send a request',
+      body: `Pick a subject, course level and day, then say what you're stuck on — that's it. No account, no password.` },
+    { icon: ICONS.people, cls: 'g3', step: 'Step 3', title: 'Get matched',
+      body: `An approved peer tutor claims your request and meets you in that teacher's room. Look it up any time by email.` }
+  ];
+
+  return `
+    <section class="hero">
+      <div class="container">
+        <div class="badge">
+          <span class="badge-avatar">LHS</span>
+          Liberty High School · Frisco, TX
+        </div>
+        <h1 class="hero-title">
+          <span class="line">Free science tutoring,</span>
+          <span class="line grad-text">booked in seconds</span>
+        </h1>
+        <p class="hero-sub">
+          Science All Stars pairs students with peer tutors for one-on-one help.
+          Find a day on the calendar and request it — you don't even need an account.
+        </p>
+        <div class="hero-cta">
+          <button class="btn btn-primary btn-lg" data-action="switch-view" data-target="calendar">View the calendar</button>
+          <button class="btn btn-lg" data-action="go-signup">Sign up as a tutor</button>
+        </div>
+        <p class="hero-status ${openDays.length ? '' : 'is-quiet'}"><span class="dot"></span>${status}</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="card-grid">
+          ${steps.map(s=>`
+            <article class="feature-card">
+              <div class="feature-icon ${s.cls}">${s.icon}</div>
+              <p class="feature-step">${s.step}</p>
+              <h3 class="feature-title">${s.title}</h3>
+              <p>${s.body}</p>
+            </article>
+          `).join('')}
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="panel">
+          <div class="section-head">
+            <p class="eyebrow">What we cover</p>
+            <h2 class="h-lg">Five science courses, tutored by students who just took them</h2>
+            <p class="lede">Each subject meets in its own teacher's room on their usual days, so pick the day that matches your class.</p>
+          </div>
+          <div class="subject-grid">
+            ${Object.entries(CONFIG.SUBJECTS).map(([key,s])=>`
+              <div class="subject-card">
+                <div class="name"><span class="subject-dot" style="background:var(--${subjectVar(key)});"></span>${escapeHtml(s.label)}</div>
+                <p class="meta">${escapeHtml(s.teacher)}'s room · ${dayNames(s.days)}</p>
+                ${s.subOptions ? `<p class="meta" style="margin-top:4px;">${s.subOptions.map(escapeHtml).join(' · ')}</p>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="card-grid">
+          <article class="card">
+            <h3 class="h-sm">Same-day cutoff</h3>
+            <p class="card-copy">Requests for today close at ${fmtHour(CONFIG.TUTEE_CUTOFF)}, and tutors can claim them until ${fmtHour(CONFIG.TUTOR_CUTOFF)}. After that, book the next open day.</p>
+          </article>
+          <article class="card">
+            <h3 class="h-sm">Small by design</h3>
+            <p class="card-copy">A tutor takes at most ${CONFIG.MAX_PER_ROOM_PER_DAY} students a day, all in one room — so nobody is juggling half the school at once.</p>
+          </article>
+          <article class="card">
+            <h3 class="h-sm">Changed your mind?</h3>
+            <p class="card-copy">Look your request up by email and withdraw it while it's still open. Nothing is charged, and nothing is held against you.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="cta-band">
+          <div>
+            <h2>Tutor with Science All Stars</h2>
+            <p>Verify once with your teacher's form, get approved for the courses you know, and claim the sessions that fit your schedule. Volunteer-hours confirmations land straight in your dashboard.</p>
+          </div>
+          <div class="btn-row" style="margin-top:0;">
+            <button class="btn btn-primary" data-action="go-signup">Create a tutor account</button>
+            <button class="btn btn-ghost" data-action="go-login">Log in</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function subjectVar(key){
+  return { biology:'bio', chemistry:'chem', physics:'phys', envsci:'env', psychology:'psych' }[key] || 'chem';
+}
+function dayNames(days){
+  const short = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return days.map(d=>short[d]).join(', ');
+}
+
+/* -------------------------- CALENDAR / BOOKING ----------------------------- */
+/* The two-week strip at the top of the page. Tutoring only ever runs Mon-Thu,
+   so each week is four cards wide; days closed by the school calendar and days
+   already past the cutoff are shown greyed out rather than hidden, so the
+   picture of "when can I actually come in" stays honest. */
+function renderCalendarStrip(now){
+  const openSet = new Set(getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m).map(fmtISO));
+  const today = todayMidnight();
+  const dow = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + (dow === 0 ? -6 : 1 - dow));
+  const short = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const card = (d) => {
+    const iso = fmtISO(d);
+    const open = openSet.has(iso);
+    const past = d.getTime() < today.getTime();
+    const closed = isNoTutoringDate(iso);
+    const subjects = Object.entries(CONFIG.SUBJECTS).filter(([,s]) => s.days.includes(d.getDay()));
+
+    const cls = ['cal-day'];
+    let note;
+    if (open){ note = `${subjects.length} subject${subjects.length === 1 ? '' : 's'}`; }
+    else if (closed){ cls.push('is-closed'); note = 'School closed'; }
+    else if (past){ cls.push('is-past'); note = 'Past'; }
+    else { cls.push('is-past'); note = "Sign-ups closed"; }
+    if (state.calDate === iso) cls.push('is-selected');
+
+    return `
+      <button type="button" class="${cls.join(' ')}" ${open ? `data-action="pick-day" data-date="${iso}"` : 'disabled'}>
+        <span class="cal-dow">${short[d.getDay()]}</span>
+        <span class="cal-date">${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}</span>
+        <span class="cal-dots">${open ? subjects.map(([k]) => `<span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>`).join('') : ''}</span>
+        <span class="cal-note">${note}</span>
+      </button>`;
+  };
+
+  // Always a full Mon-Thu row for each of the two weeks, so the columns line
+  // up by weekday even when the first few days have already gone by.
+  const weeks = [0, 1]
+    .map(w => {
+      const days = [];
+      for (let i = 0; i < 4; i++){
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + w * 7 + i);
+        days.push(d);
+      }
+      return days;
+    })
+    // On a weekend the current week is entirely behind us — a whole row of
+    // "Past" cards is just noise, so drop it.
+    .filter(days => days.some(d => d.getTime() >= today.getTime()))
+    .map(days => `<div class="cal-week">${days.map(card).join('')}</div>`);
+
+  return `
+    <div class="cal-wrap">
+      <div class="cal-weeks">${weeks.join('')}</div>
+      <div class="cal-legend">
+        ${Object.entries(CONFIG.SUBJECTS).map(([k,s])=>`
+          <span class="legend-item"><span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>${escapeHtml(s.label)}</span>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+/* Repaints just the selected-day highlight, so picking a day never costs the
+   visitor whatever they'd already typed into the form. */
+function syncCalendarSelection(){
+  document.querySelectorAll('.cal-day').forEach(el => {
+    el.classList.toggle('is-selected', !!state.calDate && el.dataset.date === state.calDate);
+  });
+}
+
+function renderCalendarView(){
   const now = new Date();
   const dates = getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
   const closed = upcomingNoTutoringDates(now);
-  const windowNote = dates.length
-    ? `Open days right now: ${dates.map(fmtShort).join(', ')}. Each subject only meets on its teacher's usual days below.`
+  const lede = dates.length
+    ? `Sign-ups for today close at ${fmtHour(CONFIG.TUTEE_CUTOFF)}. Pick any day below, then fill in the request — each subject only meets on its teacher's usual days.`
     : (closed.length
         ? `No sign-up days are open — the next two weeks are school holidays or breaks.`
         : `No sign-up days are open right now — check back Monday morning.`);
+
   return `
-    <h2 class="section-title">Request a tutor</h2>
-    <p class="section-sub">Sign-ups close for the current day at ${fmtHour(CONFIG.TUTEE_CUTOFF)}. ${windowNote}</p>
-    ${closedDaysNote(now)}
+    <div class="page-head">
+      <p class="eyebrow">Calendar</p>
+      <h1 class="h-lg">Find a day, request a tutor</h1>
+      <p class="lede">${lede}</p>
+    </div>
 
-    <form id="tutee-form" data-form="tutee-request">
-      <div class="grid-2">
-        <div class="field">
-          <label class="req">Your name</label>
-          <input name="tuteeName" required maxlength="80" placeholder="First and last name" />
+    ${renderCalendarStrip(now)}
+
+    <div class="panel" id="request-panel">
+      <h2 class="section-title">Request a session</h2>
+      <p class="section-sub">No account needed — we'll match you with an approved peer tutor for that day.</p>
+
+      <form id="tutee-form" data-form="tutee-request">
+        <div class="grid-2">
+          <div class="field">
+            <label class="req">Your name</label>
+            <input name="tuteeName" required maxlength="80" placeholder="First and last name" />
+          </div>
+          <div class="field">
+            <label class="req">Your email</label>
+            <input name="tuteeEmail" type="email" required maxlength="120" placeholder="${EXAMPLE_EMAIL}" />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="req">Subject</label>
+            <select name="subjectKey" id="tutee-subject-select" required>
+              <option value="">Choose a subject</option>
+              ${Object.entries(CONFIG.SUBJECTS).map(([k,s])=>`<option value="${k}" ${state.calSubject===k?'selected':''}>${escapeHtml(s.label)} — ${escapeHtml(s.teacher)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" id="tutee-suboption-wrap"></div>
         </div>
         <div class="field">
-          <label class="req">Your email</label>
-          <input name="tuteeEmail" type="email" required maxlength="120" placeholder="${EXAMPLE_EMAIL}" />
-        </div>
-      </div>
-      <div class="grid-2">
-        <div class="field">
-          <label class="req">Subject</label>
-          <select name="subjectKey" id="tutee-subject-select" required>
-            <option value="">Choose a subject</option>
-            ${Object.entries(CONFIG.SUBJECTS).map(([k,s])=>`<option value="${k}">${escapeHtml(s.label)} — ${escapeHtml(s.teacher)}</option>`).join('')}
+          <label class="req">Day</label>
+          <select name="date" id="tutee-date-select" disabled required>
+            <option value="">Choose a subject first</option>
           </select>
+          <div class="hint">Only days that are open for sign-ups <em>and</em> taught by that subject's teacher are listed.</div>
         </div>
-        <div class="field" id="tutee-suboption-wrap"></div>
-      </div>
-      <div class="field">
-        <label class="req">Day</label>
-        <select name="date" id="tutee-date-select" disabled required>
-          <option value="">Choose a subject first</option>
-        </select>
-        <div class="hint">Only days that are both open for sign-ups and taught by that subject's teacher are listed.</div>
-      </div>
-      <div class="field">
-        <label>What do you need help with? <span class="fine">(optional)</span></label>
-        <textarea name="note" maxlength="600" placeholder="e.g. Struggling with unit 3 stoichiometry problems, especially limiting reagent questions."></textarea>
-      </div>
-      <button type="submit" class="btn btn-primary">Submit request</button>
-    </form>
+        <div class="field">
+          <label>What do you need help with? <span class="fine">(optional)</span></label>
+          <textarea name="note" maxlength="600" placeholder="e.g. Struggling with unit 3 stoichiometry problems, especially limiting reagent questions."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Submit request</button>
+      </form>
+    </div>
 
-    <hr class="divider" />
-
-    <h2 class="section-title">Check on a request</h2>
-    <p class="section-sub">Look up requests you've already submitted by email.</p>
-    <form id="tutee-lookup-form" data-form="tutee-lookup" class="grid-2" style="align-items:end;">
-      <div class="field" style="margin-bottom:0;">
-        <label>Your email</label>
-        <input name="lookupEmail" type="email" placeholder="${EXAMPLE_EMAIL}" value="${escapeHtml(state.lastSubmittedEmail||'')}" />
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <button type="submit" class="btn">Look up my requests</button>
-      </div>
-    </form>
-    ${renderTuteeLookupResults()}
+    <div class="panel" style="margin-top:18px;">
+      <h2 class="section-title">Check on a request</h2>
+      <p class="section-sub">Look up anything you've already submitted, and withdraw it if plans change.</p>
+      <form id="tutee-lookup-form" data-form="tutee-lookup" class="grid-2" style="align-items:end;">
+        <div class="field" style="margin-bottom:0;">
+          <label>Your email</label>
+          <input name="lookupEmail" type="email" placeholder="${EXAMPLE_EMAIL}" value="${escapeHtml(state.lastSubmittedEmail||'')}" />
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <button type="submit" class="btn">Look up my requests</button>
+        </div>
+      </form>
+      ${renderTuteeLookupResults()}
+    </div>
   `;
 }
 function renderTuteeLookupResults(){
   if (!cache.lookupTickets) return '';
-  if (!cache.lookupTickets.length) return `<div class="empty-state" style="margin-top:16px;">No requests found for that email yet.</div>`;
-  return `<div class="ticket-list" style="margin-top:16px;">${cache.lookupTickets.map(t=>renderTicket(t,'tutee')).join('')}</div>`;
+  if (!cache.lookupTickets.length) return `<div class="empty-state" style="margin-top:18px;">No requests found for that email yet.</div>`;
+  return `<div class="ticket-list" style="margin-top:18px;">${cache.lookupTickets.map(t=>renderTicket(t,'tutee')).join('')}</div>`;
 }
 
 /* --------------------------- TICKET COMPONENT ------------------------------ */
@@ -441,8 +705,8 @@ function renderTicket(t, context){
         ${taskBanner}
       </div>
       <div class="ticket-stub">
-        <span class="ticket-id">${t.id}</span>
         <span class="ticket-date">${fmtShort(dateObj)}</span>
+        <span class="ticket-id" title="${escapeHtml(t.id)}">${escapeHtml(t.id)}</span>
       </div>
     </div>
   `;
@@ -451,9 +715,13 @@ function renderTicket(t, context){
 /* --------------------------- TUTOR VIEW ------------------------------------ */
 function renderTutorView(){
   const tutor = session.tutor;
-  if (!tutor) return renderTutorAuth();
-  if (tutor.verificationStatus !== 'approved') return renderTutorVerification(tutor);
-  return renderTutorDashboard(tutor);
+  // Sign-in and verification are single-column cards, so they get a narrower
+  // panel than the full dashboard.
+  const narrow = !tutor || tutor.verificationStatus !== 'approved';
+  const body = !tutor ? renderTutorAuth()
+    : tutor.verificationStatus !== 'approved' ? renderTutorVerification(tutor)
+    : renderTutorDashboard(tutor);
+  return `<div class="panel${narrow ? ' panel-narrow' : ''}">${body}</div>`;
 }
 function renderTutorAuth(){
   const isSignup = state.tutorAuthMode === 'signup';
@@ -481,6 +749,10 @@ function renderTutorAuth(){
         ${isSignup
           ? `Already have an account? <button data-action="tutor-auth-mode" data-target="login">Sign in</button>`
           : `New tutor? <button data-action="tutor-auth-mode" data-target="signup">Create an account</button>`}
+      </div>
+      <div class="auth-alt">
+        <span class="fine">Just looking for help with a class? <button class="auth-alt-link" data-action="switch-view" data-target="calendar">Request a session instead</button></span><br>
+        <span class="fine">Program administrator? <button class="auth-alt-link" data-action="switch-view" data-target="admin">Admin sign-in</button></span>
       </div>
     </div>
   `;
@@ -564,8 +836,9 @@ function renderTutorDashboard(tutor){
 /* --------------------------- ADMIN VIEW ------------------------------------ */
 function renderAdminView(){
   const admin = session.admin;
-  if (!admin) return renderAdminAuth();
-  return renderAdminDashboard(admin);
+  return admin
+    ? `<div class="panel">${renderAdminDashboard(admin)}</div>`
+    : `<div class="panel panel-narrow">${renderAdminAuth()}</div>`;
 }
 function renderAdminAuth(){
   return `
@@ -583,6 +856,9 @@ function renderAdminAuth(){
         </div>
         <button type="submit" class="btn btn-primary">Sign in</button>
       </form>
+      <div class="auth-alt">
+        <span class="fine">Not an admin? <button class="auth-alt-link" data-action="switch-view" data-target="tutor">Tutor sign-in</button></span>
+      </div>
     </div>
   `;
 }
@@ -638,7 +914,7 @@ function renderAdminDashboard(admin){
       <h2 class="section-title">Tutor verifications</h2>
       <p class="section-sub">Tutors upload a photo of their completed verification form — review it, then approve them for the specific subjects and course levels they're allowed to teach, or reject them.</p>
       ${pendingTutors.length ? `
-        <table class="roster">
+        <div class="table-wrap"><table class="roster">
           <thead><tr><th>Email</th><th>Submitted</th><th>Verification Form</th><th>Decision</th></tr></thead>
           <tbody>
           ${pendingTutors.map(t=>`
@@ -655,7 +931,7 @@ function renderAdminDashboard(admin){
             </tr>
           `).join('')}
           </tbody>
-        </table>
+        </table></div>
       ` : `<div class="empty-state">No tutors are waiting on verification.</div>`}
     `;
   } else if (state.adminSubtab === 'sessions'){
@@ -669,7 +945,7 @@ function renderAdminDashboard(admin){
       <h2 class="section-title">Tutor roster</h2>
       <p class="section-sub">Change what a tutor is allowed to teach at any time, or delete an account outright.</p>
       ${tutors.length ? `
-        <table class="roster">
+        <div class="table-wrap"><table class="roster">
           <thead><tr><th>Email</th><th>Status</th><th>Approved to tutor</th><th>Joined</th><th></th></tr></thead>
           <tbody>
             ${tutors.map(t=>`
@@ -690,7 +966,7 @@ function renderAdminDashboard(admin){
                 </td>
               </tr>`).join('')}
           </tbody>
-        </table>
+        </table></div>
       ` : `<div class="empty-state">No tutors have signed up yet.</div>`}
     `;
   } else if (state.adminSubtab === 'volhours'){
@@ -796,7 +1072,7 @@ function renderAdminAccounts(admin){
       create or delete admin accounts, and they can't remove you.
     </p>
     ${admins.length ? `
-      <table class="roster">
+      <div class="table-wrap"><table class="roster">
         <thead><tr><th>Email</th><th>Role</th><th>Added</th><th></th></tr></thead>
         <tbody>
           ${admins.map(a=>`
@@ -816,7 +1092,7 @@ function renderAdminAccounts(admin){
               </td>
             </tr>`).join('')}
         </tbody>
-      </table>
+      </table></div>
     ` : `<div class="empty-state">No admin accounts loaded.</div>`}
 
     <hr class="divider" />
@@ -853,6 +1129,32 @@ function renderAdminTutorBoard(){
     <h3 style="font-size:16px;">My claimed sessions (as admin)</h3>
     ${mine.length ? `<div class="ticket-list">${mine.map(t=>renderTicket(t,'tutor-mine')).join('')}</div>` : `<div class="empty-state">None yet.</div>`}
   `;
+}
+
+/* --------------------------- NAVIGATION ----------------------------------- */
+async function goToView(view){
+  if (state.view === view){ window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  state.view = view;
+  await loadAndRender();
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+/* One button in the header clears whichever sessions are actually open — an
+   admin who also has a tutor account shouldn't have to sign out twice. */
+async function handleSignOut(){
+  if (session.tutor){
+    try{ await api('POST','/api/tutor/logout'); }catch(e){ /* cookie is gone either way */ }
+    session.tutor = null;
+  }
+  if (session.admin){
+    try{ await api('POST','/api/admin/logout'); }catch(e){ /* as above */ }
+    session.admin = null;
+  }
+  state.view = 'home';
+  state.adminSubtab = 'overview';
+  state.tutorAuthMode = 'login';
+  pushToast('Signed out.', 'info');
+  await loadAndRender();
 }
 
 /* ---------------------------- DATA LOADING -------------------------------- */
@@ -904,6 +1206,8 @@ async function handleTuteeRequest(form){
     state.lastSubmittedEmail = payload.tuteeEmail;
     state.tuteeLookupEmail = payload.tuteeEmail;
     cache.lookupTickets = await api('GET', '/api/tickets?email=' + encodeURIComponent(payload.tuteeEmail));
+    state.calSubject = '';
+    state.calDate = '';
     pushToast('Request submitted! Track its status below with your email.', 'success');
     render();
   }catch(err){ pushToast(err.message, 'error'); }
@@ -944,8 +1248,11 @@ async function handleTutorLogin(form){
   }catch(err){ pushToast(err.message,'error'); }
 }
 async function handleTutorLogout(){
-  try{ await api('POST','/api/tutor/logout'); }catch(e){}
-  session.tutor = null; render();
+  try{ await api('POST','/api/tutor/logout'); }catch(e){ /* cookie is gone either way */ }
+  session.tutor = null;
+  state.tutorAuthMode = 'login';
+  if (!session.admin) state.view = 'home';
+  render();
 }
 async function handleTutorVerifyFile(input){
   const file = input.files[0]; if (!file) return;
@@ -1078,8 +1385,11 @@ async function handleAdminLogin(form){
   }catch(err){ pushToast(err.message,'error'); }
 }
 async function handleAdminLogout(){
-  try{ await api('POST','/api/admin/logout'); }catch(e){}
-  session.admin = null; state.adminSubtab = 'overview'; render();
+  try{ await api('POST','/api/admin/logout'); }catch(e){ /* cookie is gone either way */ }
+  session.admin = null;
+  state.adminSubtab = 'overview';
+  if (!session.tutor) state.view = 'home';
+  render();
 }
 async function handleAdminChangePassword(form){
   const fd = new FormData(form);
@@ -1155,8 +1465,13 @@ function updateTuteeDependentFields(subjectKey){
     dateSelect.innerHTML = '<option value="">No sessions available right now</option>';
     dateSelect.disabled = true;
   } else {
+    const isoDates = dates.map(fmtISO);
+    // Keep a day already picked off the calendar strip selected here, but only
+    // if this subject actually meets that day.
+    if (state.calDate && !isoDates.includes(state.calDate)) state.calDate = '';
     dateSelect.disabled = false;
-    dateSelect.innerHTML = '<option value="">Choose a day</option>' + dates.map(d=>`<option value="${fmtISO(d)}">${fmtLong(d)}</option>`).join('');
+    dateSelect.innerHTML = '<option value="">Choose a day</option>' +
+      isoDates.map((iso,i)=>`<option value="${iso}" ${state.calDate===iso?'selected':''}>${fmtLong(dates[i])}</option>`).join('');
   }
 }
 
@@ -1179,7 +1494,12 @@ document.addEventListener('submit', async (e)=>{
 });
 
 document.addEventListener('change', async (e)=>{
-  if (e.target.id === 'tutee-subject-select'){ updateTuteeDependentFields(e.target.value); return; }
+  if (e.target.id === 'tutee-subject-select'){
+    state.calSubject = e.target.value;
+    updateTuteeDependentFields(e.target.value);
+    return;
+  }
+  if (e.target.id === 'tutee-date-select'){ state.calDate = e.target.value; syncCalendarSelection(); return; }
   // Subject/level checkboxes in the eligibility picker move together: ticking
   // a subject grants all of its levels, and ticking any level grants the
   // subject it belongs to.
@@ -1205,7 +1525,28 @@ document.addEventListener('click', async (e)=>{
   const action = btn.dataset.action;
   const id = btn.dataset.id;
   try{
-    if (action === 'switch-view'){ state.view = btn.dataset.target; await loadAndRender(); }
+    if (action === 'switch-view'){ await goToView(btn.dataset.target); }
+    else if (action === 'toggle-theme'){ toggleTheme(); }
+    else if (action === 'go-login'){ state.tutorAuthMode = 'login'; await goToView('tutor'); }
+    else if (action === 'go-signup'){ state.tutorAuthMode = 'signup'; await goToView('tutor'); }
+    else if (action === 'sign-out') await handleSignOut();
+    else if (action === 'pick-day'){
+      state.calDate = btn.dataset.date;
+      // A subject that doesn't meet that day would leave the form unsubmittable,
+      // so drop it and let them re-pick.
+      const subj = CONFIG.SUBJECTS[state.calSubject];
+      if (subj && !subj.days.includes(parseISO(state.calDate).getDay())){
+        state.calSubject = '';
+        const sel = document.getElementById('tutee-subject-select');
+        if (sel) sel.value = '';
+      }
+      // Patch the form in place rather than re-rendering — a full render would
+      // throw away a name or note that's already been typed.
+      updateTuteeDependentFields(state.calSubject);
+      syncCalendarSelection();
+      const panel = document.getElementById('request-panel');
+      if (panel) panel.scrollIntoView({ behavior:'smooth', block:'start' });
+    }
     else if (action === 'tutor-auth-mode'){ state.tutorAuthMode = btn.dataset.target; render(); }
     else if (action === 'tutor-logout') await handleTutorLogout();
     else if (action === 'admin-logout') await handleAdminLogout();
