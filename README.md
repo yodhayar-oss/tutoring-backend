@@ -1,4 +1,4 @@
-# Science Tutoring — Backend & Site
+# Science All Stars — Backend & Site
 
 A Node.js/Express backend that stores everything — accounts, tickets,
 verification-form photos, tutoring-proof photos, and volunteer-hours PDFs —
@@ -175,6 +175,42 @@ can't be deleted.
 If you're upgrading a database that already had admins in it, the oldest
 admin account is automatically promoted to owner the next time the server
 starts.
+
+## The site
+
+The frontend is a single page (`public/index.html` + `app.js` + `styles.css`)
+that talks to the API and nothing else — no build step, no framework.
+
+**Brand and layout.** It's presented as *Science All Stars*. A sticky header
+carries the wordmark, the **Home** / **Calendar** nav, a theme toggle, and
+**Log in** / **Sign up**. When someone is signed in, the header swaps those two
+buttons for their email and a single **Sign out** (which clears a tutor and an
+admin session at once), and a **Dashboard** or **Admin** entry appears in the
+nav.
+
+- **Home** is a landing page: what the program is, the three steps to booking,
+  the five courses and the days each one meets, and the sign-up cutoffs. The
+  status line under the hero is live — it counts the sign-up days actually open
+  in the current two-week window.
+- **Calendar** is the tutee flow. A two-week Mon-Thu grid shows every day with
+  a dot per subject meeting that day; days the school calendar closes and days
+  past their cutoff are greyed out with the reason rather than hidden. Clicking
+  an open day fills it into the request form below (and drops a chosen subject
+  that doesn't meet that day). Below the form, anyone can look their requests up
+  by email and withdraw one.
+- **Dashboard** and **Admin** are the tutor and admin views, unchanged in
+  behaviour.
+
+**Themes.** Dark is the default. The header toggle switches to light and stores
+the choice in `localStorage` under `sas-theme`; a small inline script in the
+`<head>` applies it before first paint so the page never flashes. Every colour
+is a CSS custom property defined on `:root` and re-defined under
+`[data-theme="light"]` — components never hard-code a colour, so adding a theme
+is a matter of redefining tokens.
+
+**Fonts** come from Google Fonts (Inter, plus IBM Plex Mono for ticket IDs).
+That's the reason `server.js` leaves `Content-Security-Policy` off — see
+"Security notes" below.
 
 ## The date tester
 

@@ -1,30 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>No-Tutoring Date Tester (temporary)</title>
+<script>
+  (function(){
+    try{
+      // Dark is the brand default; light is opt-in through the header toggle.
+      var saved = localStorage.getItem('sas-theme');
+      document.documentElement.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+    }catch(e){}
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <style>
-  .tester-banner{ border:2px dashed var(--warn); background:var(--warn-bg); border-radius:8px; padding:14px 16px; margin-bottom:20px; font-size:13px; }
+  .tester-banner{ border:1px solid var(--line-strong); background:var(--warn-bg); border-radius:var(--r-md); padding:14px 16px; margin-bottom:20px; font-size:13px; color:var(--text); }
   .tester-banner h2{ font-size:15px; margin:0 0 6px; }
-  .tester-banner code{ font-family:var(--mono); font-size:12px; background:var(--card); padding:1px 5px; border-radius:3px; }
+  .tester-banner code{ font-family:var(--mono); font-size:12px; background:var(--surface); padding:1px 5px; border-radius:3px; }
   .quick-jumps{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .quick-jumps button{ font-size:12px; padding:5px 11px; }
   .day-list{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0; padding:0; list-style:none; }
-  .day-pill{ font-family:var(--mono); font-size:12px; border:1px solid var(--line-strong); border-radius:14px; padding:3px 10px; background:var(--card); }
+  .day-pill{ font-family:var(--mono); font-size:12px; border:1px solid var(--line-strong); border-radius:14px; padding:3px 10px; background:var(--surface); }
   .day-pill.closed{ border-color:var(--danger); background:var(--danger-bg); color:var(--danger); text-decoration:line-through; }
-  .result-block{ border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin-bottom:12px; background:var(--paper-alt); }
+  .result-block{ border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin-bottom:12px; background:var(--surface-2); }
   .result-block h3{ font-size:14px; margin:0 0 4px; }
   .verdict{ font-family:var(--mono); font-size:11.5px; font-weight:600; padding:2px 8px; border-radius:10px; white-space:nowrap; }
-  .verdict.pass{ background:var(--ok-bg); color:var(--accent-dark); }
+  .verdict.pass{ background:var(--ok-bg); color:var(--ok); }
   .verdict.fail{ background:var(--danger-bg); color:var(--danger); }
-  .verdict.na{ background:var(--paper-alt); color:var(--ink-faint); }
+  .verdict.na{ background:var(--surface-2); color:var(--text-faint); }
   .summary-line{ font-size:15px; font-weight:600; padding:12px 14px; border-radius:6px; margin-bottom:14px; }
-  .summary-line.pass{ background:var(--ok-bg); color:var(--accent-dark); border:1px solid var(--accent); }
+  .summary-line.pass{ background:var(--ok-bg); color:var(--ok); border:1px solid var(--ok); }
   .summary-line.fail{ background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger); }
   table.roster td.mono{ font-family:var(--mono); font-size:12px; }
   .now-badge{ display:inline-block; font-family:var(--mono); font-size:12px; padding:3px 9px; border-radius:12px; background:var(--info-bg); color:var(--info); }
@@ -32,13 +41,12 @@
 </style>
 </head>
 <body>
-<div class="shell">
-  <div class="masthead">
-    <div>
-      <h1 class="brand-title">No-Tutoring Date Tester</h1>
-      <p class="brand-sub">Pretend it's any day of the 2026-27 school year and see exactly what the sign-up desk would offer.</p>
-    </div>
-    <div class="today"><a href="/">&larr; back to the site</a></div>
+<div class="container page">
+  <div class="page-head">
+    <p class="eyebrow">Internal tool</p>
+    <h1 class="h-lg">No-Tutoring Date Tester</h1>
+    <p class="lede">Pretend it's any day of the 2026-27 school year and see exactly what the sign-up desk would offer.</p>
+    <p style="margin-top:12px;"><a href="/" class="auth-alt-link">&larr; Back to the site</a></p>
   </div>
 
   <div class="tester-banner">
@@ -82,7 +90,7 @@
     <div id="all-out" style="margin-top:18px;"></div>
   </div>
 
-  <p class="footer-note">Temporary testing tool — not linked from anywhere students will see.</p>
+  <p class="fine" style="text-align:center; margin-top:32px;">Temporary testing tool — not linked from anywhere students will see.</p>
 </div>
 <script src="/date-tester.js" defer></script>
 </body>
