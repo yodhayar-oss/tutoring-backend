@@ -192,12 +192,25 @@ nav.
   the five courses and the days each one meets, and the sign-up cutoffs. The
   status line under the hero is live — it counts the sign-up days actually open
   in the current two-week window.
-- **Calendar** is the tutee flow. A two-week Mon-Thu grid shows every day with
-  a dot per subject meeting that day; days the school calendar closes and days
-  past their cutoff are greyed out with the reason rather than hidden. Clicking
-  an open day fills it into the request form below (and drops a chosen subject
-  that doesn't meet that day). Below the form, anyone can look their requests up
-  by email and withdraw one.
+- **Calendar** is the tutee flow, and runs in three modes behind a **Day /
+  Week / Month** toggle:
+  - **Day** — one day at a time, listing every subject that meets it with its
+    teacher's room and course levels. Clicking a subject fills in *both* the day
+    and the subject on the form below.
+  - **Week** — the four cards of one Mon-Thu week, each with a dot per subject.
+  - **Month** — a full month grid, for seeing holidays and breaks at a glance.
+
+  All three share one classifier, so a day can't read "open" in the month grid
+  and "closed" in the day view. Days the school calendar closes, days past their
+  cutoff, and days beyond the two-week sign-up window are greyed out with the
+  reason rather than hidden. The calendar opens on the first day you could
+  actually book — on a weekend that's next week, not the week that just finished
+  — and stepping backwards stops there.
+
+  Only the calendar repaints when you change mode, step through months or pick a
+  day, so a half-typed request is never lost; a theme switch, which does repaint
+  the page, carries the form's values across. Below the form, anyone can look
+  their requests up by email and withdraw one.
 - **Dashboard** and **Admin** are the tutor and admin views, unchanged in
   behaviour.
 
