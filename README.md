@@ -325,6 +325,13 @@ dashboard and CLI both support this) — that's now the only copy of your data.
   requirements (e.g. FERPA) before rolling this out for real.
 - Helmet's Content-Security-Policy is turned off for simplicity (it
   otherwise blocks the Google Fonts stylesheet). Consider tightening it later.
+- `npm audit` should report **0 vulnerabilities**. Keeping it there needs one
+  thing that isn't obvious: the `overrides` block in `package.json` pins `qs`
+  to `^6.16.0`. Express 4 asks for `~6.15.1`, which excludes the version that
+  fixes two moderate advisories in its query-string parser, and npm can't
+  resolve that on its own without moving to Express 5. Don't drop the override
+  unless you've upgraded Express. Re-check with `npm audit` after any
+  dependency change.
 
 ## A note on testing
 
