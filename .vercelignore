@@ -1,0 +1,7 @@
+# Local-only bits that never need to reach a deployment.
+.env
+*.log
+test-local.db
+test-turso.js
+tools/
+README.md

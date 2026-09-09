@@ -4,8 +4,8 @@ A Node.js/Express backend that stores everything — accounts, tickets,
 verification-form photos, tutoring-proof photos, and volunteer-hours PDFs —
 in **Turso**, a free hosted SQLite-compatible database. Nothing is written to
 the server's local disk, which means this app can run on a genuinely free
-host (like Render's free tier) without losing data when the service restarts,
-sleeps, or gets redeployed.
+host — it deploys to **Vercel** as a serverless function — without losing data
+when the service restarts, redeploys, or is scaled to zero between visitors.
 
 ## Why this version is different
 
@@ -21,6 +21,8 @@ and accounts would quietly vanish. This version fixes that by:
 The result: the whole app is "stateless" from the host's point of view. You
 can restart it, redeploy it, or run it on a free tier that wipes its disk
 constantly, and nothing is lost — the data lives in Turso, not on the server.
+That is also what makes it a fit for serverless, where every request may be
+handled by a brand-new instance with an empty disk.
 
 ## Requirements
 
@@ -56,28 +58,68 @@ constantly, and nothing is lost — the data lives in Turso, not on the server.
 The database tables are created automatically the first time the server
 starts, directly in your Turso database.
 
-## 3. Deploy somewhere free
+## 3. Deploy to Vercel
 
-Because there's no local disk to worry about anymore, you can deploy this to
-**Render's free tier** (or Railway, Fly.io, Cyclic, etc.) and it will keep its
-data:
+Nothing is written to local disk, so this runs fine on a serverless host.
+The repo is set up for **Vercel** out of the box.
 
-1. Push this project to a GitHub repository (your `.env` file is git-ignored on purpose — never commit it).
-2. On Render, create a new **Web Service** from that repository.
-   - Build command: `npm install`
-   - Start command: `npm start`
-   - Instance type: **Free**
-3. In Render's "Environment" tab, add the same variables from your `.env` file: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `ADMIN_BOOTSTRAP_EMAIL`, and `NODE_ENV=production`.
-4. Deploy. Render gives you a public URL like `https://your-app.onrender.com`.
-5. Check the "Logs" tab for the one-time admin password, same as running locally.
+1. Push this project to a GitHub repository (your `.env` file is git-ignored on
+   purpose — never commit it).
+2. On Vercel, **Add New → Project** and import that repository.
+3. In the configure step:
+   - **Framework Preset:** `Other`
+   - **Root Directory:** `./` (the repository root — leave it alone)
+   - Leave Build Command, Output Directory and Install Command on their
+     defaults. There is no build step; `vercel.json` already says what to do.
+4. Under **Environment Variables**, add the same values from your `.env`:
+   `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, and
+   `ADMIN_BOOTSTRAP_EMAIL`. You do *not* need to set `NODE_ENV` or `PORT` —
+   Vercel sets `NODE_ENV=production` itself, and it assigns the port.
+5. Deploy. You get a URL like `https://your-app.vercel.app`.
+6. Open the site once, then check **Deployments → your deployment → Logs** (the
+   Functions/runtime logs) for the one-time admin password. See the note below
+   about *when* it appears.
 
-**What "free" still means here:** Render's free web services go to sleep
-after 15 minutes with no visitors and take 30-60 seconds to wake back up on
-the next visit. That's just a speed inconvenience now, not a data-loss risk —
-your accounts, requests, and photos stay safe in Turso the whole time,
-however long the service has been asleep.
+### How the Vercel setup works
 
-## Scheduling, tutor subjects, and admin roles
+```
+vercel.json   — rewrites every request that isn't a static file to /api
+api/index.js  — the serverless function; re-exports the Express app
+server.js     — exports `app`, and only calls app.listen() when run directly
+```
+
+- **Static files** in `public/` are served straight from Vercel's CDN, because
+  a rewrite only fires when no file matches. `/styles.css` never touches a
+  function.
+- **Everything else** — the `/api/*` routes and the SPA fallback for deep links
+  — is rewritten to the one Express function, so there is a single route table
+  rather than one per endpoint. `vercel.json` sets `includeFiles: public/**` so
+  the function can still serve `index.html` for a deep link.
+- **`npm start` still works locally and on any long-running host.** `server.js`
+  only listens when it is the file that was run, which is why importing it from
+  `api/index.js` doesn't try to open a port.
+
+### What changes on serverless
+
+- **Startup runs per instance, not per deploy.** On a long-running host,
+  `initDb()` and `bootstrapAdmin()` run once before `listen()`. Vercel creates
+  instances on demand, so they run on the first request each new instance
+  handles instead, memoised so it is still once per process. That is why the
+  first-run admin password appears in the logs of the *first request* rather
+  than at deploy time — and why the very first request after a cold start is a
+  little slower.
+- **Rate limiting is weaker than it looks.** `express-rate-limit` keeps its
+  counters in memory, so each instance counts separately; with several
+  instances warm, the effective login limit is a multiple of the configured 30
+  per 15 minutes. It still blunts brute force, but if you want a hard limit,
+  move the store into Turso or put Vercel's own protection in front.
+- **Uploads must fit in 4.5 MB.** That is Vercel's request-body cap for a
+  serverless function. Verification photos and proof photos are compressed in
+  the browser first and land far under it; volunteer-hours PDFs are capped at
+  4 MB by multer so an oversized one gets a clear error instead of an opaque
+  platform 413.
+
+## Scheduling, tutor subjects, and admin roles## Scheduling, tutor subjects, and admin roles
 
 ### Days with no tutoring
 
@@ -192,12 +234,25 @@ nav.
   the five courses and the days each one meets, and the sign-up cutoffs. The
   status line under the hero is live — it counts the sign-up days actually open
   in the current two-week window.
-- **Calendar** is the tutee flow. A two-week Mon-Thu grid shows every day with
-  a dot per subject meeting that day; days the school calendar closes and days
-  past their cutoff are greyed out with the reason rather than hidden. Clicking
-  an open day fills it into the request form below (and drops a chosen subject
-  that doesn't meet that day). Below the form, anyone can look their requests up
-  by email and withdraw one.
+- **Calendar** is the tutee flow, and runs in three modes behind a **Day /
+  Week / Month** toggle:
+  - **Day** — one day at a time, listing every subject that meets it with its
+    teacher's room and course levels. Clicking a subject fills in *both* the day
+    and the subject on the form below.
+  - **Week** — the four cards of one Mon-Thu week, each with a dot per subject.
+  - **Month** — a full month grid, for seeing holidays and breaks at a glance.
+
+  All three share one classifier, so a day can't read "open" in the month grid
+  and "closed" in the day view. Days the school calendar closes, days past their
+  cutoff, and days beyond the two-week sign-up window are greyed out with the
+  reason rather than hidden. The calendar opens on the first day you could
+  actually book — on a weekend that's next week, not the week that just finished
+  — and stepping backwards stops there.
+
+  Only the calendar repaints when you change mode, step through months or pick a
+  day, so a half-typed request is never lost; a theme switch, which does repaint
+  the page, carries the form's values across. Below the form, anyone can look
+  their requests up by email and withdraw one.
 - **Dashboard** and **Admin** are the tutor and admin views, unchanged in
   behaviour.
 
@@ -306,4 +361,6 @@ src/routes/dateTester.js      — TEMPORARY read-only calendar preview API (see 
 tools/verify-blackout-dates.js— `npm run test:dates` — checks the no-tutoring calendar with no server needed
 public/index.html, app.js, styles.css  — the frontend; talks to the API only
 public/date-tester.html, date-tester.js — TEMPORARY calendar tester page
+api/index.js                  — Vercel serverless entry; re-exports the Express app
+vercel.json                   — rewrites non-static requests to that function
 ```

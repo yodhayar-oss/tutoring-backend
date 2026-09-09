@@ -55,7 +55,11 @@ let state = {
   // The booking form is re-rendered from scratch on every render(), so the
   // two fields a visitor is most likely to have already picked live here.
   calSubject: '',
-  calDate: ''
+  calDate: '',
+  // Which calendar mode is showing, and the day/week/month it's parked on.
+  // `calAnchor` is what you're looking at; `calDate` is what you've chosen.
+  calMode: 'week',
+  calAnchor: ''
 };
 let toasts = [];
 let toastCounter = 0;
@@ -280,7 +284,9 @@ const ICONS = {
   sun: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   calendar: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>',
-  people: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 19.5v-1.6a3.6 3.6 0 0 0-3.6-3.6H7.6A3.6 3.6 0 0 0 4 17.9v1.6"/><circle cx="10" cy="8" r="3.3"/><path d="M20 19.5v-1.6a3.6 3.6 0 0 0-2.7-3.5M15.6 4.9a3.3 3.3 0 0 1 0 6.3"/></svg>'
+  people: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 19.5v-1.6a3.6 3.6 0 0 0-3.6-3.6H7.6A3.6 3.6 0 0 0 4 17.9v1.6"/><circle cx="10" cy="8" r="3.3"/><path d="M20 19.5v-1.6a3.6 3.6 0 0 0-2.7-3.5M15.6 4.9a3.3 3.3 0 0 1 0 6.3"/></svg>',
+  chevronLeft: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>',
+  chevronRight: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>'
 };
 
 /* ============================== THEME ==================================== */
@@ -293,7 +299,33 @@ function toggleTheme(){
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', next === 'light' ? '#FBFBFD' : '#0A0A0C');
   try{ localStorage.setItem('sas-theme', next); }catch(e){ /* private mode — this visit only */ }
+  // A theme switch repaints the whole page; don't make that cost someone the
+  // request they were halfway through typing.
+  const typed = captureRequestForm();
   render();
+  restoreRequestForm(typed);
+}
+
+/* The booking form's free-text fields aren't mirrored in `state`, so a full
+   render() would blank them. These two carry them across one. */
+const REQUEST_FIELDS = ['tuteeName', 'tuteeEmail', 'subOption', 'note'];
+function captureRequestForm(){
+  const form = document.getElementById('tutee-form');
+  const lookup = document.querySelector('#tutee-lookup-form [name=lookupEmail]');
+  if (!form && !lookup) return null;
+  const out = {};
+  if (form) REQUEST_FIELDS.forEach(n => { if (form.elements[n]) out[n] = form.elements[n].value; });
+  if (lookup) out.lookupEmail = lookup.value;
+  return out;
+}
+function restoreRequestForm(vals){
+  if (!vals) return;
+  const form = document.getElementById('tutee-form');
+  if (form) REQUEST_FIELDS.forEach(n => {
+    if (form.elements[n] && vals[n] !== undefined) form.elements[n].value = vals[n];
+  });
+  const lookup = document.querySelector('#tutee-lookup-form [name=lookupEmail]');
+  if (lookup && vals.lookupEmail !== undefined) lookup.value = vals.lookupEmail;
 }
 
 /* ============================== RENDER =================================== */
@@ -369,41 +401,23 @@ function renderFooter(){
 
 /* --------------------------- HOME (LANDING) ------------------------------- */
 function renderHome(){
-  const now = new Date();
-  const openDays = getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
-  const status = openDays.length
-    ? `${openDays.length} open sign-up ${openDays.length === 1 ? 'day' : 'days'} in the next two weeks — the next one is ${fmtShort(openDays[0])}.`
-    : `No sign-up days are open right now — check back soon.`;
-
   const steps = [
-    { icon: ICONS.calendar, cls: '',   step: 'Step 1', title: 'Browse the calendar',
-      body: `Every day tutoring runs, laid out two weeks ahead with the subjects meeting each day. No login needed to look.` },
+    { icon: ICONS.calendar,  cls: '',   step: 'Step 1', title: 'Browse the calendar',
+      body: `Two weeks of open days. No login.` },
     { icon: ICONS.sparkleLg, cls: 'g2', step: 'Step 2', title: 'Send a request',
-      body: `Pick a subject, course level and day, then say what you're stuck on — that's it. No account, no password.` },
-    { icon: ICONS.people, cls: 'g3', step: 'Step 3', title: 'Get matched',
-      body: `An approved peer tutor claims your request and meets you in that teacher's room. Look it up any time by email.` }
+      body: `Pick a day, a subject, and what's hard.` },
+    { icon: ICONS.people,    cls: 'g3', step: 'Step 3', title: 'Get matched',
+      body: `A tutor claims it and meets you there.` }
   ];
 
   return `
     <section class="hero">
       <div class="container">
-        <div class="badge">
-          <span class="badge-avatar">LHS</span>
-          Liberty High School · Frisco, TX
-        </div>
-        <h1 class="hero-title">
-          <span class="line">Free science tutoring,</span>
-          <span class="line grad-text">booked in seconds</span>
-        </h1>
-        <p class="hero-sub">
-          Science All Stars pairs students with peer tutors for one-on-one help.
-          Find a day on the calendar and request it — you don't even need an account.
-        </p>
+        <h1 class="hero-title">LHS <span class="grad-text">Science Tutoring</span></h1>
+        <p class="hero-sub">Peer tutors<span class="sep">|</span>One-on-one<span class="sep">|</span>No account needed</p>
         <div class="hero-cta">
-          <button class="btn btn-primary btn-lg" data-action="switch-view" data-target="calendar">View the calendar</button>
-          <button class="btn btn-lg" data-action="go-signup">Sign up as a tutor</button>
+          <button class="btn btn-primary btn-xl" data-action="switch-view" data-target="calendar">Book a Session</button>
         </div>
-        <p class="hero-status ${openDays.length ? '' : 'is-quiet'}"><span class="dot"></span>${status}</p>
       </div>
     </section>
 
@@ -488,76 +502,194 @@ function dayNames(days){
 }
 
 /* -------------------------- CALENDAR / BOOKING ----------------------------- */
-/* The two-week strip at the top of the page. Tutoring only ever runs Mon-Thu,
-   so each week is four cards wide; days closed by the school calendar and days
-   already past the cutoff are shown greyed out rather than hidden, so the
-   picture of "when can I actually come in" stays honest. */
-function renderCalendarStrip(now){
-  const openSet = new Set(getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m).map(fmtISO));
-  const today = todayMidnight();
-  const dow = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() + (dow === 0 ? -6 : 1 - dow));
-  const short = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+/* The calendar above the request form runs in three modes — one day, one
+   Mon-Thu week, or a whole month. Only the two-week sign-up window is ever
+   bookable, so days outside it (and holidays, and days past their cutoff) are
+   shown greyed out with the reason rather than hidden: the point is an honest
+   picture of when you can actually come in. */
 
-  const card = (d) => {
-    const iso = fmtISO(d);
-    const open = openSet.has(iso);
-    const past = d.getTime() < today.getTime();
-    const closed = isNoTutoringDate(iso);
-    const subjects = Object.entries(CONFIG.SUBJECTS).filter(([,s]) => s.days.includes(d.getDay()));
+const CAL_MODES = [['day','Day'], ['week','Week'], ['month','Month']];
+const WEEKDAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-    const cls = ['cal-day'];
-    let note;
-    if (open){ note = `${subjects.length} subject${subjects.length === 1 ? '' : 's'}`; }
-    else if (closed){ cls.push('is-closed'); note = 'School closed'; }
-    else if (past){ cls.push('is-past'); note = 'Past'; }
-    else { cls.push('is-past'); note = "Sign-ups closed"; }
-    if (state.calDate === iso) cls.push('is-selected');
+/* One classifier for all three modes, so a day can't read "open" in the month
+   grid and "closed" in the day view. */
+function dayInfo(d, openSet, today){
+  const iso = fmtISO(d);
+  const subjects = Object.entries(CONFIG.SUBJECTS).filter(([,s]) => s.days.includes(d.getDay()));
+  const base = { iso, subjects, isToday: d.getTime() === today.getTime() };
+  if (openSet.has(iso)) return { ...base, key:'open', open:true, label:`${subjects.length} subject${subjects.length === 1 ? '' : 's'}`, long:'Open for sign-ups' };
+  if (isNoTutoringDate(iso)) return { ...base, key:'closed', open:false, label:'School closed', long:'No tutoring — school holiday or break' };
+  if (!subjects.length) return { ...base, key:'none', open:false, label:'No tutoring', long:'Tutoring only runs Monday to Thursday' };
+  if (d.getTime() < today.getTime()) return { ...base, key:'past', open:false, label:'Past', long:'This day has already passed' };
+  if (d.getTime() === today.getTime()) return { ...base, key:'cutoff', open:false, label:'Sign-ups closed', long:`Today's sign-ups closed at ${fmtHour(CONFIG.TUTEE_CUTOFF)}` };
+  return { ...base, key:'beyond', open:false, label:'Not open yet', long:'Sign-ups open two weeks ahead — check back closer to the date' };
+}
 
-    return `
-      <button type="button" class="${cls.join(' ')}" ${open ? `data-action="pick-day" data-date="${iso}"` : 'disabled'}>
-        <span class="cal-dow">${short[d.getDay()]}</span>
-        <span class="cal-date">${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}</span>
-        <span class="cal-dots">${open ? subjects.map(([k]) => `<span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>`).join('') : ''}</span>
-        <span class="cal-note">${note}</span>
-      </button>`;
-  };
+/* The calendar opens on the first day you could actually book — on a weekend
+   that's next week, not the week that has just finished — and stepping
+   backwards stops there, since nothing earlier is ever bookable. */
+function calFloor(){
+  const eligible = getEligibleDates(new Date(), CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
+  return eligible.length ? eligible[0] : todayMidnight();
+}
+function calAnchor(){
+  return state.calAnchor ? parseISO(state.calAnchor) : calFloor();
+}
+function mondayOf(d){
+  const m = new Date(d);
+  m.setDate(d.getDate() + (d.getDay() === 0 ? -6 : 1 - d.getDay()));
+  return m;
+}
+function calAtEarliest(){
+  const a = calAnchor(), floor = calFloor();
+  if (state.calMode === 'day') return a.getTime() <= floor.getTime();
+  if (state.calMode === 'week') return mondayOf(a).getTime() <= mondayOf(floor).getTime();
+  return a.getFullYear() < floor.getFullYear() ||
+    (a.getFullYear() === floor.getFullYear() && a.getMonth() <= floor.getMonth());
+}
+function calShift(delta){
+  const a = calAnchor();
+  if (state.calMode === 'day') a.setDate(a.getDate() + delta);
+  else if (state.calMode === 'week') a.setDate(a.getDate() + delta * 7);
+  else a.setMonth(a.getMonth() + delta, 1);
+  state.calAnchor = fmtISO(a);
+}
+function calRangeLabel(){
+  const a = calAnchor();
+  if (state.calMode === 'day') return `${fmtLong(a)}, ${a.getFullYear()}`;
+  if (state.calMode === 'month') return `${MONTHS[a.getMonth()]} ${a.getFullYear()}`;
+  const mon = mondayOf(a);
+  const thu = new Date(mon); thu.setDate(mon.getDate() + 3);
+  const left = `${MONTHS[mon.getMonth()].slice(0,3)} ${mon.getDate()}`;
+  const right = mon.getMonth() === thu.getMonth()
+    ? `${thu.getDate()}`
+    : `${MONTHS[thu.getMonth()].slice(0,3)} ${thu.getDate()}`;
+  return `${left} – ${right}, ${thu.getFullYear()}`;
+}
 
-  // Always a full Mon-Thu row for each of the two weeks, so the columns line
-  // up by weekday even when the first few days have already gone by.
-  const weeks = [0, 1]
-    .map(w => {
-      const days = [];
-      for (let i = 0; i < 4; i++){
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + w * 7 + i);
-        days.push(d);
-      }
-      return days;
-    })
-    // On a weekend the current week is entirely behind us — a whole row of
-    // "Past" cards is just noise, so drop it.
-    .filter(days => days.some(d => d.getTime() >= today.getTime()))
-    .map(days => `<div class="cal-week">${days.map(card).join('')}</div>`);
+/* ---- the three modes ---- */
 
+function calDayCard(d, info){
+  const cls = ['cal-day', `is-${info.key}`];
+  if (state.calDate === info.iso) cls.push('is-selected');
+  if (info.isToday) cls.push('is-today');
   return `
-    <div class="cal-wrap">
-      <div class="cal-weeks">${weeks.join('')}</div>
-      <div class="cal-legend">
-        ${Object.entries(CONFIG.SUBJECTS).map(([k,s])=>`
-          <span class="legend-item"><span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>${escapeHtml(s.label)}</span>
-        `).join('')}
+    <button type="button" class="${cls.join(' ')}" ${info.open ? `data-action="pick-day" data-date="${info.iso}"` : 'disabled'}>
+      <span class="cal-dow">${WEEKDAY_SHORT[d.getDay()]}${info.isToday ? ' · Today' : ''}</span>
+      <span class="cal-date">${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}</span>
+      <span class="cal-dots">${info.open ? info.subjects.map(([k]) => `<span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>`).join('') : ''}</span>
+      <span class="cal-note">${info.label}</span>
+    </button>`;
+}
+
+function renderCalWeek(openSet, today){
+  const mon = mondayOf(calAnchor());
+  const days = [];
+  for (let i = 0; i < 4; i++){
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    days.push(d);
+  }
+  return `<div class="cal-week">${days.map(d => calDayCard(d, dayInfo(d, openSet, today))).join('')}</div>`;
+}
+
+function renderCalDay(openSet, today){
+  const d = calAnchor();
+  const info = dayInfo(d, openSet, today);
+  const chip = { open:'chip-completed', closed:'chip-cancelled', none:'chip-unsubmitted',
+                 past:'chip-unsubmitted', cutoff:'chip-claimed', beyond:'chip-open' }[info.key];
+  return `
+    <div class="cal-day-detail">
+      <div class="cal-day-hero">
+        <div>
+          <p class="cal-dow">${WEEKDAY_LONG[d.getDay()]}${info.isToday ? ' · Today' : ''}</p>
+          <p class="cal-bigdate">${MONTHS[d.getMonth()]} ${d.getDate()}</p>
+        </div>
+        <span class="chip ${chip}">${info.long}</span>
       </div>
+      ${info.subjects.length ? `
+        <div class="cal-subject-rows">
+          ${info.subjects.map(([k, s]) => `
+            <button type="button" class="cal-subject-row ${state.calDate === info.iso && state.calSubject === k ? 'is-selected' : ''}"
+                    ${info.open ? `data-action="pick-slot" data-date="${info.iso}" data-subject="${k}"` : 'disabled'}>
+              <span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>
+              <span class="cal-sr-main">
+                <span class="cal-sr-name">${escapeHtml(s.label)}</span>
+                <span class="cal-sr-meta">${escapeHtml(s.teacher)}'s room${s.subOptions ? ` · ${s.subOptions.map(escapeHtml).join(' · ')}` : ''}</span>
+              </span>
+              ${info.open ? `<span class="cal-sr-cta">Choose</span>` : ''}
+            </button>`).join('')}
+        </div>
+      ` : `<div class="empty-state">No subjects meet on a ${WEEKDAY_LONG[d.getDay()]} — tutoring runs Monday to Thursday.</div>`}
     </div>`;
 }
 
-/* Repaints just the selected-day highlight, so picking a day never costs the
-   visitor whatever they'd already typed into the form. */
-function syncCalendarSelection(){
-  document.querySelectorAll('.cal-day').forEach(el => {
-    el.classList.toggle('is-selected', !!state.calDate && el.dataset.date === state.calDate);
-  });
+function renderCalMonth(openSet, today){
+  const a = calAnchor();
+  const first = new Date(a.getFullYear(), a.getMonth(), 1);
+  const daysInMonth = new Date(a.getFullYear(), a.getMonth() + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < first.getDay(); i++) cells.push('<span class="cal-cell is-blank"></span>');
+  for (let n = 1; n <= daysInMonth; n++){
+    const d = new Date(a.getFullYear(), a.getMonth(), n);
+    const info = dayInfo(d, openSet, today);
+    const cls = ['cal-cell', `is-${info.key}`];
+    if (state.calDate === info.iso) cls.push('is-selected');
+    if (info.isToday) cls.push('is-today');
+    cells.push(`
+      <button type="button" class="${cls.join(' ')}"
+              ${info.open ? `data-action="pick-day" data-date="${info.iso}"` : 'disabled'}
+              title="${escapeHtml(`${fmtLong(d)} — ${info.long}`)}">
+        <span class="cal-cell-num">${n}</span>
+        <span class="cal-dots">${info.open ? info.subjects.map(([k]) => `<span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>`).join('') : ''}</span>
+      </button>`);
+  }
+  return `
+    <div class="cal-month">
+      <div class="cal-month-head">${WEEKDAY_SHORT.map(w=>`<span>${w}</span>`).join('')}</div>
+      <div class="cal-month-grid">${cells.join('')}</div>
+    </div>`;
+}
+
+/* ---- toolbar + shell ---- */
+
+function renderCalendarSection(now){
+  const openSet = new Set(getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m).map(fmtISO));
+  const today = todayMidnight();
+  const body =
+    state.calMode === 'day'   ? renderCalDay(openSet, today) :
+    state.calMode === 'month' ? renderCalMonth(openSet, today) :
+                                renderCalWeek(openSet, today);
+  return `
+    <div class="cal-toolbar">
+      <div class="seg" role="group" aria-label="Calendar view">
+        ${CAL_MODES.map(([k,l])=>`
+          <button type="button" class="seg-btn ${state.calMode===k?'active':''}"
+                  data-action="cal-mode" data-mode="${k}" aria-pressed="${state.calMode===k}">${l}</button>`).join('')}
+      </div>
+      <div class="cal-nav">
+        <button type="button" class="icon-btn" data-action="cal-step" data-delta="-1"
+                aria-label="Previous ${state.calMode}" ${calAtEarliest()?'disabled':''}>${ICONS.chevronLeft}</button>
+        <span class="cal-label">${calRangeLabel()}</span>
+        <button type="button" class="icon-btn" data-action="cal-step" data-delta="1"
+                aria-label="Next ${state.calMode}">${ICONS.chevronRight}</button>
+        <button type="button" class="btn btn-ghost btn-small" data-action="cal-today">Today</button>
+      </div>
+    </div>
+    ${body}
+    <div class="cal-legend">
+      ${Object.entries(CONFIG.SUBJECTS).map(([k,s])=>`
+        <span class="legend-item"><span class="subject-dot" style="background:var(--${subjectVar(k)});"></span>${escapeHtml(s.label)}</span>
+      `).join('')}
+    </div>`;
+}
+
+/* Repaints only the calendar, so changing mode, stepping through months or
+   picking a day never costs the visitor whatever they'd already typed into
+   the request form below. */
+function refreshCalendar(){
+  const shell = document.getElementById('calendar-shell');
+  if (shell) shell.innerHTML = renderCalendarSection(new Date());
 }
 
 function renderCalendarView(){
@@ -577,7 +709,7 @@ function renderCalendarView(){
       <p class="lede">${lede}</p>
     </div>
 
-    ${renderCalendarStrip(now)}
+    <div id="calendar-shell">${renderCalendarSection(now)}</div>
 
     <div class="panel" id="request-panel">
       <h2 class="section-title">Request a session</h2>
@@ -1496,10 +1628,12 @@ document.addEventListener('submit', async (e)=>{
 document.addEventListener('change', async (e)=>{
   if (e.target.id === 'tutee-subject-select'){
     state.calSubject = e.target.value;
+    // May clear calDate if the new subject doesn't meet that day, so repaint.
     updateTuteeDependentFields(e.target.value);
+    refreshCalendar();
     return;
   }
-  if (e.target.id === 'tutee-date-select'){ state.calDate = e.target.value; syncCalendarSelection(); return; }
+  if (e.target.id === 'tutee-date-select'){ state.calDate = e.target.value; refreshCalendar(); return; }
   // Subject/level checkboxes in the eligibility picker move together: ticking
   // a subject grants all of its levels, and ticking any level grants the
   // subject it belongs to.
@@ -1530,20 +1664,29 @@ document.addEventListener('click', async (e)=>{
     else if (action === 'go-login'){ state.tutorAuthMode = 'login'; await goToView('tutor'); }
     else if (action === 'go-signup'){ state.tutorAuthMode = 'signup'; await goToView('tutor'); }
     else if (action === 'sign-out') await handleSignOut();
-    else if (action === 'pick-day'){
+    else if (action === 'cal-mode'){ state.calMode = btn.dataset.mode; refreshCalendar(); }
+    else if (action === 'cal-step'){ calShift(Number(btn.dataset.delta)); refreshCalendar(); }
+    else if (action === 'cal-today'){ state.calAnchor = ''; refreshCalendar(); }
+    else if (action === 'pick-day' || action === 'pick-slot'){
       state.calDate = btn.dataset.date;
-      // A subject that doesn't meet that day would leave the form unsubmittable,
-      // so drop it and let them re-pick.
-      const subj = CONFIG.SUBJECTS[state.calSubject];
-      if (subj && !subj.days.includes(parseISO(state.calDate).getDay())){
-        state.calSubject = '';
+      if (action === 'pick-slot'){
+        state.calSubject = btn.dataset.subject;
         const sel = document.getElementById('tutee-subject-select');
-        if (sel) sel.value = '';
+        if (sel) sel.value = state.calSubject;
+      } else {
+        // A subject that doesn't meet that day would leave the form
+        // unsubmittable, so drop it and let them re-pick.
+        const subj = CONFIG.SUBJECTS[state.calSubject];
+        if (subj && !subj.days.includes(parseISO(state.calDate).getDay())){
+          state.calSubject = '';
+          const sel = document.getElementById('tutee-subject-select');
+          if (sel) sel.value = '';
+        }
       }
-      // Patch the form in place rather than re-rendering — a full render would
+      // Patch the form and repaint only the calendar — a full render would
       // throw away a name or note that's already been typed.
       updateTuteeDependentFields(state.calSubject);
-      syncCalendarSelection();
+      refreshCalendar();
       const panel = document.getElementById('request-panel');
       if (panel) panel.scrollIntoView({ behavior:'smooth', block:'start' });
     }
