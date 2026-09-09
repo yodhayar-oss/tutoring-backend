@@ -206,39 +206,27 @@ main{ flex:1 0 auto; }
 }
 
 /* -------------------------------- HERO --------------------------------- */
-.hero{ position:relative; text-align:center; padding:74px 0 60px; overflow:hidden; }
+/* Deliberately spare: a name, three words about what this is, and one button.
+   Everything a first-time visitor needs is one scroll below. */
+.hero{ position:relative; text-align:center; padding:72px 0 56px; overflow:hidden; }
 .hero::before{
   content:''; position:absolute; top:-320px; left:50%; transform:translateX(-50%);
   width:min(1100px,140vw); height:620px; pointer-events:none;
   background:radial-gradient(ellipse at center, var(--bg-glow) 0%, transparent 68%);
 }
 .hero > *{ position:relative; }
-.badge{
-  display:inline-flex; align-items:center; gap:9px;
-  border:1px solid var(--line-strong); background:var(--surface);
-  border-radius:var(--pill); padding:6px 16px 6px 7px; margin-bottom:26px;
-  font-size:13.5px; color:var(--text-soft); box-shadow:var(--shadow-sm);
-}
-.badge-avatar{
-  width:24px; height:24px; border-radius:var(--pill); flex-shrink:0;
-  background:linear-gradient(135deg,var(--grad-1),var(--grad-2) 55%,var(--grad-3));
-  display:flex; align-items:center; justify-content:center;
-  font-size:8px; font-weight:800; letter-spacing:.03em; color:#fff;
-}
 .hero-title{
   font-size:clamp(38px,6.4vw,68px); line-height:1.04; letter-spacing:-.045em;
-  font-weight:800; margin:0 0 22px;
+  font-weight:800; margin:0 0 18px;
 }
-.hero-title .line{ display:block; }
-.hero-sub{ max-width:590px; margin:0 auto 30px; font-size:17px; color:var(--text-soft); }
-.hero-cta{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-bottom:22px; }
-.hero-status{ font-size:13.5px; color:var(--text-faint); margin:0; }
-.hero-status .dot{
-  display:inline-block; width:6px; height:6px; border-radius:var(--pill);
-  background:var(--ok); margin-right:7px; vertical-align:middle;
+.hero-sub{ max-width:590px; margin:0 auto 28px; font-size:17px; color:var(--text-soft); }
+.hero-sub .sep{ color:var(--text-faint); opacity:.5; padding:0 9px; }
+.hero-cta{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:0; }
+@media (max-width:640px){
+  .hero{ padding:48px 0 40px; }
+  .hero-sub{ font-size:15px; }
+  .hero-sub .sep{ padding:0 6px; }
 }
-.hero-status.is-quiet .dot{ background:var(--text-faint); }
-@media (max-width:640px){ .hero{ padding:48px 0 44px; } .hero-sub{ font-size:15.5px; } }
 
 /* ------------------------------ BUTTONS -------------------------------- */
 .btn{
@@ -254,6 +242,8 @@ main{ flex:1 0 auto; }
 .btn-primary{ background:var(--primary); border-color:transparent; color:var(--primary-ink); }
 .btn-primary:hover{ background:var(--primary-hover); }
 .btn-lg{ font-size:15px; padding:12px 26px; }
+.btn-xl{ font-size:22px; padding:17px 42px; }
+@media (max-width:640px){ .btn-xl{ font-size:17px; padding:15px 32px; } }
 .btn-small{ font-size:13px; padding:7px 14px; }
 .btn-ghost{ background:transparent; border-color:var(--line); color:var(--text-soft); }
 .btn-ghost:hover{ background:var(--surface-2); color:var(--text); }

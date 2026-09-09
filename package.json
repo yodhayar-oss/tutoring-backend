@@ -2,10 +2,10 @@
   "name": "science-tutoring-backend",
   "version": "2.0.0",
   "private": true,
-  "description": "Backend for the high school science tutoring sign-up site. Everything (accounts, tickets, photos, PDFs) lives in a free hosted Turso database — no local disk needed, so it survives restarts on free hosting.",
+  "description": "Backend for the Science All Stars peer tutoring site. Everything (accounts, tickets, photos, PDFs) lives in a free hosted Turso database — no local disk needed, so it survives restarts on free hosting.",
   "main": "server.js",
   "engines": {
-    "node": ">=18"
+    "node": "22.x"
   },
   "scripts": {
     "start": "node server.js",

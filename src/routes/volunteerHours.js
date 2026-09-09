@@ -11,7 +11,9 @@ const router = express.Router();
 
 const pdfUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  // 4 MB, not 5: Vercel caps a serverless request body at 4.5 MB, and being
+  // refused by multer with a clear message beats an opaque 413 from the platform.
+  limits: { fileSize: 4 * 1024 * 1024 },
   fileFilter: (req, file, cb) => file.mimetype === 'application/pdf' ? cb(null, true) : cb(new Error('Only PDF files are allowed.'))
 });
 

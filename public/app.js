@@ -401,41 +401,23 @@ function renderFooter(){
 
 /* --------------------------- HOME (LANDING) ------------------------------- */
 function renderHome(){
-  const now = new Date();
-  const openDays = getEligibleDates(now, CONFIG.TUTEE_CUTOFF.h, CONFIG.TUTEE_CUTOFF.m);
-  const status = openDays.length
-    ? `${openDays.length} open sign-up ${openDays.length === 1 ? 'day' : 'days'} in the next two weeks — the next one is ${fmtShort(openDays[0])}.`
-    : `No sign-up days are open right now — check back soon.`;
-
   const steps = [
-    { icon: ICONS.calendar, cls: '',   step: 'Step 1', title: 'Browse the calendar',
-      body: `Every day tutoring runs, laid out two weeks ahead with the subjects meeting each day. No login needed to look.` },
+    { icon: ICONS.calendar,  cls: '',   step: 'Step 1', title: 'Browse the calendar',
+      body: `Two weeks of open days. No login.` },
     { icon: ICONS.sparkleLg, cls: 'g2', step: 'Step 2', title: 'Send a request',
-      body: `Pick a subject, course level and day, then say what you're stuck on — that's it. No account, no password.` },
-    { icon: ICONS.people, cls: 'g3', step: 'Step 3', title: 'Get matched',
-      body: `An approved peer tutor claims your request and meets you in that teacher's room. Look it up any time by email.` }
+      body: `Pick a day, a subject, and what's hard.` },
+    { icon: ICONS.people,    cls: 'g3', step: 'Step 3', title: 'Get matched',
+      body: `A tutor claims it and meets you there.` }
   ];
 
   return `
     <section class="hero">
       <div class="container">
-        <div class="badge">
-          <span class="badge-avatar">LHS</span>
-          Liberty High School · Frisco, TX
-        </div>
-        <h1 class="hero-title">
-          <span class="line">Free science tutoring,</span>
-          <span class="line grad-text">booked in seconds</span>
-        </h1>
-        <p class="hero-sub">
-          Science All Stars pairs students with peer tutors for one-on-one help.
-          Find a day on the calendar and request it — you don't even need an account.
-        </p>
+        <h1 class="hero-title">LHS <span class="grad-text">Science Tutoring</span></h1>
+        <p class="hero-sub">Peer tutors<span class="sep">|</span>One-on-one<span class="sep">|</span>No account needed</p>
         <div class="hero-cta">
-          <button class="btn btn-primary btn-lg" data-action="switch-view" data-target="calendar">View the calendar</button>
-          <button class="btn btn-lg" data-action="go-signup">Sign up as a tutor</button>
+          <button class="btn btn-primary btn-xl" data-action="switch-view" data-target="calendar">Book a Session</button>
         </div>
-        <p class="hero-status ${openDays.length ? '' : 'is-quiet'}"><span class="dot"></span>${status}</p>
       </div>
     </section>
 

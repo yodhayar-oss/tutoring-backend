@@ -30,6 +30,28 @@ app.set('trust proxy', 1);
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/tutor/login', '/api/admin/login', '/api/tutor/signup'], loginLimiter);
 
+// On a long-running host this work happens once before listen(). On Vercel
+// each serverless instance is created on demand, so it has to happen on the
+// first request that instance sees instead — memoised so it's still once per
+// process, and retried on the next request if it fails.
+let readyPromise = null;
+function ensureReady() {
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      await initDb();
+      await bootstrapAdmin();
+    })().catch(err => {
+      readyPromise = null; // let the next request try again
+      throw err;
+    });
+  }
+  return readyPromise;
+}
+
+app.use((req, res, next) => {
+  ensureReady().then(() => next()).catch(next);
+});
+
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/tutor', tutorRoutes);
 app.use('/api/admin', adminRoutes);
@@ -46,13 +68,17 @@ app.use((err, req, res, next) => {
   res.status(400).json({ error: err.message || 'Something went wrong.' });
 });
 
-async function main() {
-  await initDb();
-  await bootstrapAdmin();
-  app.listen(PORT, () => console.log(`Tutoring server running at http://localhost:${PORT}`));
+// Vercel imports this module and drives `app` itself, so only listen when this
+// file is what was actually run (`npm start`, or any long-running host).
+if (require.main === module) {
+  ensureReady()
+    .then(() => {
+      app.listen(PORT, () => console.log(`Tutoring server running at http://localhost:${PORT}`));
+    })
+    .catch(err => {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    });
 }
 
-main().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+module.exports = app;
